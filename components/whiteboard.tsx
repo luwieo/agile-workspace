@@ -180,7 +180,7 @@ function TldrawBoard({ projectId, workspaceId, initialData, userRole }: TldrawBo
             )}
             <Tldraw
                 onMount={setEditor}
-                readOnly={viewOnly}
+                isReadonly={viewOnly}
             />
         </div>
     )
