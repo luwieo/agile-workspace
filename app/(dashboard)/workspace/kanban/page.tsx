@@ -19,6 +19,17 @@ export default async function KanbanPage({
 
     if (!user) redirect('/login')
 
+    // Option A: re-query current user's profile for presence tracking
+    const { data: profile } = await (supabase
+        .from('profiles') as any)
+        .select('first_name, last_name, username, avatar_url')
+        .eq('id', user.id)
+        .maybeSingle()
+
+    const currentUserName = profile
+        ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.username || user.email || ''
+        : user.email || ''
+
     // Find active project
     let projectQuery = (supabase.from('projects') as any).select('id, name, workspace_id')
     if (workspaceId) {
@@ -27,7 +38,7 @@ export default async function KanbanPage({
     const { data: projects } = await projectQuery.limit(1)
     const activeProject = projects?.[0]
 
-    // Query tasks belonging to this project (all statuses for summary tab)
+    // Query tasks
     const { data: tasks } = activeProject
         ? await (supabase.from('tasks') as any)
             .select('*')
@@ -35,9 +46,20 @@ export default async function KanbanPage({
             .order('created_at', { ascending: true })
         : { data: [] }
 
-    // Fetch workspace members
+    // Fetch workspace members (used as role/avatar fallback in presence)
     const effectiveWorkspaceId = activeProject?.workspace_id || workspaceId
     const members: AvatarMember[] = effectiveWorkspaceId ? await getWorkspaceMembers(effectiveWorkspaceId) : []
+
+    // Build currentUser presence payload — find role from members list
+    const selfMember = members.find((m) => m.userId === user.id)
+    const currentUser: AvatarMember = {
+        userId: user.id,
+        name: currentUserName,
+        username: profile?.username ?? null,
+        role: selfMember?.role ?? 'member',
+        avatarUrl: profile?.avatar_url ?? null,
+        email: user.email,
+    }
 
     const boardTasks = tasks || []
     const backlogHref = `/workspace/backlog${workspaceId ? `?workspaceId=${workspaceId}` : ''}`
@@ -56,17 +78,22 @@ export default async function KanbanPage({
                         </p>
                     </div>
 
-                    {/* Team member avatar group */}
-                    <MemberAvatarGroup members={members} />
+                    {/* Live presence avatar group — scoped to this workspace */}
+                    {effectiveWorkspaceId && (
+                        <MemberAvatarGroup
+                            currentUser={currentUser}
+                            workspaceId={effectiveWorkspaceId}
+                            members={members}
+                        />
+                    )}
                 </div>
 
-                {/* Add Task modal trigger */}
                 {activeProject && (
                     <AddTaskButton projectId={activeProject.id} members={members} />
                 )}
             </div>
 
-            {/* Sprint tabs — Summary | Board | Backlog | Timeline */}
+            {/* Sprint tabs */}
             <SprintTabs
                 tasks={boardTasks}
                 backlogHref={backlogHref}
