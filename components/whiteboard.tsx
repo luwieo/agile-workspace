@@ -47,6 +47,9 @@ function TldrawBoard({ projectId, workspaceId, initialData, userRole }: TldrawBo
     const room = useRoom()
     const [editor, setEditor] = useState<any>(null)
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // yRecordsRef holds the live Yjs map — used by the debounced save so we
+    // never need to call editor.store.getSnapshot() (removed in tldraw v5).
+    const yRecordsRef = useRef<any>(null)
     const viewOnly = isReadOnly(userRole)
 
     // ── Keep isReadonly in sync with RBAC role ─────────────────────────────────
@@ -73,6 +76,7 @@ function TldrawBoard({ projectId, workspaceId, initialData, userRole }: TldrawBo
             const yDoc = new Doc()
             const provider = new LiveblocksYjsProvider(room, yDoc)
             const yRecords = yDoc.getMap<any>('tldraw')
+            yRecordsRef.current = yRecords  // expose for the debounced save
 
             // Wait for Yjs to sync before potentially bootstrapping from DB
             await new Promise<void>((resolve) => {
@@ -116,15 +120,19 @@ function TldrawBoard({ projectId, workspaceId, initialData, userRole }: TldrawBo
                         }
                     })
 
-                    // Debounced silent DB save — no state mutation, no re-render
+                    // Debounced silent DB save — reads from Yjs (not editor.store.getSnapshot
+                    // which was removed in tldraw v5). No state mutation, no re-render.
                     if (!viewOnly) {
                         if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
                         saveTimerRef.current = setTimeout(async () => {
                             try {
-                                const snapshot = editor.store.getSnapshot()
+                                const yMap = yRecordsRef.current
+                                if (!yMap) return
+                                const records: Record<string, any> = {}
+                                yMap.forEach((value: any, key: string) => { records[key] = value })
                                 const fd = new FormData()
                                 fd.set('projectId', projectId)
-                                fd.set('data', JSON.stringify(snapshot))
+                                fd.set('data', JSON.stringify({ store: records }))
                                 await saveWhiteboard(fd)
                             } catch (err) {
                                 console.error('[Whiteboard] DB save failed:', err)
