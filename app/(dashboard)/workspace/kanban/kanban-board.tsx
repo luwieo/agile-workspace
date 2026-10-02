@@ -4,12 +4,19 @@ import { createClient } from '@/lib/supabase/client'
 import { useState, useTransition, useEffect } from 'react'
 import { updateTaskStatus, updateTask, deleteTask } from '../actions'
 
+export type Member = {
+    userId: string
+    name: string
+    role?: string
+}
+
 export type Task = {
     id: string
     title: string
     description?: string | null
     status: 'backlog' | 'todo' | 'in_progress' | 'done'
     priority?: 'low' | 'medium' | 'high' | null
+    assignee_id?: string | null
     tags?: string[] | null
     project_id?: string
 }
@@ -23,9 +30,11 @@ const COLUMNS: { id: Task['status']; label: string }[] = [
 export default function KanbanBoard({
     initialTasks,
     projectId,
+    members = [],
 }: {
     initialTasks: Task[]
     projectId?: string
+    members?: Member[]
 }) {
     const [tasks, setTasks] = useState<Task[]>(initialTasks)
     const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
@@ -33,12 +42,10 @@ export default function KanbanBoard({
     const [selectedTask, setSelectedTask] = useState<Task | null>(null)
     const [isPending, startTransition] = useTransition()
 
-    // Sync state if server passes updated tasks
     useEffect(() => {
         setTasks(initialTasks)
     }, [initialTasks])
 
-    // Close drawer on Escape key
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') setSelectedTask(null)
@@ -50,44 +57,52 @@ export default function KanbanBoard({
     // Subscribe to live Postgres changes on the tasks table
     useEffect(() => {
         const supabase = createClient()
-        const channelName = `tasks-realtime-${projectId || 'all'}-${Math.random().toString(36).slice(2, 7)}`
 
+        // 1. Shared channel name across all clients
         const channel = supabase
-            .channel(channelName)
+            .channel('tasks-shared-channel')
             .on(
                 'postgres_changes',
                 {
                     event: '*',
                     schema: 'public',
                     table: 'tasks',
-                    ...(projectId ? { filter: `project_id=eq.${projectId}` } : {}),
                 },
                 (payload) => {
+                    console.log('Realtime event received! Payload:', payload)
+
                     if (payload.eventType === 'INSERT') {
                         const newTask = payload.new as Task
-                        setTasks((prev) => {
-                            if (prev.some((t) => t.id === newTask.id)) return prev
-                            return [...prev, newTask]
-                        })
+                        // Only add if it belongs to this board's project
+                        if (!projectId || newTask.project_id === projectId) {
+                            setTasks((prev) => {
+                                if (prev.some((t) => t.id === newTask.id)) return prev
+                                return [...prev, newTask]
+                            })
+                        }
                     } else if (payload.eventType === 'UPDATE') {
                         const updatedTask = payload.new as Task
                         setTasks((prev) =>
                             prev.map((t) => (t.id === updatedTask.id ? { ...t, ...updatedTask } : t))
                         )
                     } else if (payload.eventType === 'DELETE') {
-                        const deletedId = (payload.old as { id: string }).id
-                        setTasks((prev) => prev.filter((t) => t.id !== deletedId))
+                        const deletedId = (payload.old as { id?: string })?.id
+                        if (deletedId) {
+                            setTasks((prev) => prev.filter((t) => t.id !== deletedId))
+                        }
                     }
                 }
             )
-            .subscribe()
+            .subscribe((status, err) => {
+                console.log('Realtime status on tasks-shared-channel:', status)
+                if (err) console.error('Subscription error:', err)
+            })
 
         return () => {
             supabase.removeChannel(channel)
         }
     }, [projectId])
 
-    // 1. Drag & Drop Handlers
     const handleDragStart = (e: React.DragEvent<HTMLDivElement>, taskId: string) => {
         setActiveTaskId(taskId)
         e.dataTransfer.setData('text/plain', taskId)
@@ -131,7 +146,6 @@ export default function KanbanBoard({
         })
     }
 
-    // 2. Edit Form Submit Handler
     const handleSaveTask = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault()
         if (!selectedTask) return
@@ -140,6 +154,7 @@ export default function KanbanBoard({
         const updatedTitle = formData.get('title') as string
         const updatedDesc = formData.get('description') as string
         const updatedPriority = formData.get('priority') as Task['priority']
+        const updatedAssignee = formData.get('assigneeId') as string
 
         const previousTasks = [...tasks]
         setTasks((prev) =>
@@ -150,6 +165,7 @@ export default function KanbanBoard({
                         title: updatedTitle,
                         description: updatedDesc,
                         priority: updatedPriority,
+                        assignee_id: updatedAssignee === 'unassigned' ? null : updatedAssignee,
                     }
                     : t
             )
@@ -169,7 +185,6 @@ export default function KanbanBoard({
         })
     }
 
-    // 3. Delete Task Handler
     const handleDeleteTask = async () => {
         if (!selectedTask) return
         if (!confirm('Are you sure you want to delete this task?')) return
@@ -191,7 +206,6 @@ export default function KanbanBoard({
 
     return (
         <>
-            {/* Kanban Board Columns */}
             <div className="flex flex-1 gap-6 overflow-x-auto p-8">
                 {COLUMNS.map((column) => {
                     const columnTasks = tasks.filter((t) => t.status === column.id)
@@ -204,8 +218,8 @@ export default function KanbanBoard({
                             onDragLeave={handleDragLeave}
                             onDrop={(e) => handleDrop(e, column.id)}
                             className={`flex h-full w-80 shrink-0 flex-col rounded-2xl p-4 transition-colors duration-200 ${isTarget
-                                    ? 'bg-teal-50/70 ring-2 ring-teal-400 ring-dashed'
-                                    : 'bg-slate-100/50'
+                                ? 'bg-teal-50/70 ring-2 ring-teal-400 ring-dashed'
+                                : 'bg-slate-100/50'
                                 }`}
                         >
                             <div className="mb-4 flex items-center justify-between px-2">
@@ -218,6 +232,7 @@ export default function KanbanBoard({
                             <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
                                 {columnTasks.map((task) => {
                                     const isDragging = activeTaskId === task.id
+                                    const assignee = members.find((m) => m.userId === task.assignee_id)
 
                                     return (
                                         <div
@@ -231,14 +246,23 @@ export default function KanbanBoard({
                                             <div className="mb-2 flex items-start justify-between">
                                                 <span
                                                     className={`rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${task.priority === 'high'
-                                                            ? 'bg-red-50 text-red-600'
-                                                            : task.priority === 'medium'
-                                                                ? 'bg-amber-50 text-amber-600'
-                                                                : 'bg-slate-100 text-slate-600'
+                                                        ? 'bg-red-50 text-red-600'
+                                                        : task.priority === 'medium'
+                                                            ? 'bg-amber-50 text-amber-600'
+                                                            : 'bg-slate-100 text-slate-600'
                                                         }`}
                                                 >
                                                     {task.priority || 'no priority'}
                                                 </span>
+
+                                                {assignee && (
+                                                    <div
+                                                        title={`Assigned to ${assignee.name}`}
+                                                        className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-100 text-[10px] font-bold text-teal-800 ring-1 ring-white"
+                                                    >
+                                                        {assignee.name.slice(0, 2).toUpperCase()}
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <h3 className="text-sm font-medium text-slate-800">{task.title}</h3>
@@ -276,18 +300,14 @@ export default function KanbanBoard({
                 })}
             </div>
 
-            {/* Slide-Over Drawer Modal */}
             {selectedTask && (
                 <div className="fixed inset-0 z-50 flex justify-end">
-                    {/* Backdrop */}
                     <div
                         onClick={() => setSelectedTask(null)}
                         className="fixed inset-0 bg-slate-900/30 backdrop-blur-xs transition-opacity"
                     />
 
-                    {/* Slide-out Panel */}
                     <aside className="relative z-10 flex h-full w-full max-w-md flex-col bg-white shadow-2xl transition-transform">
-                        {/* Header */}
                         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
                             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                                 Task Details
@@ -303,7 +323,6 @@ export default function KanbanBoard({
                             </button>
                         </div>
 
-                        {/* Form Body */}
                         <form onSubmit={handleSaveTask} className="flex flex-1 flex-col justify-between overflow-y-auto p-6">
                             <input type="hidden" name="taskId" value={selectedTask.id} />
 
@@ -318,6 +337,24 @@ export default function KanbanBoard({
                                         defaultValue={selectedTask.title}
                                         className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-800 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                                     />
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+                                        Assignee
+                                    </label>
+                                    <select
+                                        name="assigneeId"
+                                        defaultValue={selectedTask.assignee_id || 'unassigned'}
+                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                    >
+                                        <option value="unassigned">Unassigned</option>
+                                        {members.map((m) => (
+                                            <option key={m.userId} value={m.userId}>
+                                                {m.name} ({m.role || 'member'})
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
 
                                 <div>
@@ -349,7 +386,6 @@ export default function KanbanBoard({
                                 </div>
                             </div>
 
-                            {/* Action Buttons */}
                             <div className="mt-8 flex items-center justify-between border-t border-slate-100 pt-4">
                                 <button
                                     type="button"

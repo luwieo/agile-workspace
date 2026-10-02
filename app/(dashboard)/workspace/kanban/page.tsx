@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { createTask } from '../actions'
+import { createTask, getWorkspaceMembers } from '../actions'
 import KanbanBoard from './kanban-board'
 
 export default async function KanbanPage({
@@ -18,7 +18,7 @@ export default async function KanbanPage({
     if (!user) redirect('/login')
 
     // Find active project
-    let projectQuery = (supabase.from('projects') as any).select('id, name')
+    let projectQuery = (supabase.from('projects') as any).select('id, name, workspace_id')
     if (workspaceId) {
         projectQuery = projectQuery.eq('workspace_id', workspaceId)
     }
@@ -32,6 +32,10 @@ export default async function KanbanPage({
             .eq('project_id', activeProject.id)
             .order('created_at', { ascending: true })
         : { data: [] }
+
+    // Fetch workspace members for task assignments
+    const effectiveWorkspaceId = activeProject?.workspace_id || workspaceId
+    const members = effectiveWorkspaceId ? await getWorkspaceMembers(effectiveWorkspaceId) : []
 
     const boardTasks = tasks || []
 
@@ -81,7 +85,11 @@ export default async function KanbanPage({
             </div>
 
             {/* Interactive Kanban Board */}
-            <KanbanBoard initialTasks={boardTasks} projectId={activeProject?.id} />
+            <KanbanBoard
+                initialTasks={boardTasks}
+                projectId={activeProject?.id}
+                members={members}
+            />
         </div>
     )
 }
