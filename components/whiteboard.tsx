@@ -49,6 +49,12 @@ function TldrawBoard({ projectId, workspaceId, initialData, userRole }: TldrawBo
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const viewOnly = isReadOnly(userRole)
 
+    // ── Keep isReadonly in sync with RBAC role ─────────────────────────────────
+    useEffect(() => {
+        if (!editor) return
+        editor.updateInstanceState({ isReadonly: viewOnly })
+    }, [editor, viewOnly])
+
     // ── Yjs ↔ tldraw sync ─────────────────────────────────────────────────────
     useEffect(() => {
         if (!editor || !room) return
@@ -179,8 +185,11 @@ function TldrawBoard({ projectId, workspaceId, initialData, userRole }: TldrawBo
                 </div>
             )}
             <Tldraw
-                onMount={setEditor}
-                isReadonly={viewOnly}
+                onMount={(e) => {
+                    // Set read-only immediately — before the first render
+                    e.updateInstanceState({ isReadonly: viewOnly })
+                    setEditor(e)
+                }}
             />
         </div>
     )
