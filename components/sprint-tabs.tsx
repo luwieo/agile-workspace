@@ -15,6 +15,7 @@ import { type WorkspaceRole } from '@/lib/rbac'
 // tldraw + Liveblocks use browser-only APIs — must be dynamic
 const WhiteboardTab = dynamic(() => import('@/components/whiteboard'), { ssr: false })
 
+type Tab = 'Summary' | 'Board' | 'Backlog' | 'Whiteboard' | 'Timeline' | 'Settings'
 
 const BASE_TABS: Tab[] = ['Summary', 'Board', 'Backlog', 'Whiteboard', 'Timeline']
 

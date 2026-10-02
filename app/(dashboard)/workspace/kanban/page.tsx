@@ -182,7 +182,7 @@ export default async function KanbanPage({
                 settingsData={settingsData}
                 projectId={activeProject?.id}
                 workspaceId={effectiveWorkspaceId ?? undefined}
-                whiteboardData={whiteboardData as Record<string, unknown> | null}
+                whiteboardData={whiteboardData as unknown as Record<string, unknown> | null}
                 currentUser={{ id: user.id, name: currentUserName }}
                 userRole={selfMembership?.role as WorkspaceRole | undefined}
                 board={
