@@ -11,10 +11,23 @@ export async function createWorkspace(formData: FormData) {
 
     const name = formData.get('name') as string
 
-    // Insert workspace
+    // Generate a URL-safe slug with a short random suffix to prevent collisions
+    const baseSlug = name
+        .toLowerCase()
+        .trim()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/[\s_-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+    const slug = `${baseSlug || 'workspace'}-${Math.random().toString(36).substring(2, 7)}`
+
+    // Insert workspace with slug
     const { data: workspace, error: wsError } = await (supabase
         .from('workspaces') as any)
-        .insert({ name, owner_id: user.id })
+        .insert({
+            name,
+            slug,
+            owner_id: user.id,
+        })
         .select()
         .single()
 
