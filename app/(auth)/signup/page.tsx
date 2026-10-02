@@ -42,15 +42,56 @@ export default function SignupPage() {
                 )}
 
                 <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+                    {/* Name fields — responsive row */}
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                        <div>
+                            <label className="block text-xs font-medium uppercase tracking-wider text-slate-500">
+                                First Name
+                            </label>
+                            <input
+                                name="firstName"
+                                type="text"
+                                required
+                                placeholder="Jane"
+                                className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 transition focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-medium uppercase tracking-wider text-slate-500">
+                                Middle Name
+                            </label>
+                            <input
+                                name="middleName"
+                                type="text"
+                                placeholder="M."
+                                className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 transition focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-medium uppercase tracking-wider text-slate-500">
+                                Last Name
+                            </label>
+                            <input
+                                name="lastName"
+                                type="text"
+                                required
+                                placeholder="Doe"
+                                className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 transition focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                            />
+                        </div>
+                    </div>
+
                     <div>
                         <label className="block text-xs font-medium uppercase tracking-wider text-slate-500">
-                            Full Name
+                            Username
                         </label>
                         <input
-                            name="fullName"
+                            name="username"
                             type="text"
                             required
-                            placeholder="Jane Doe"
+                            placeholder="janedoe"
                             className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 transition focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
                         />
                     </div>

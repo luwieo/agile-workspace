@@ -1,14 +1,29 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
 
 export async function login(formData: FormData) {
     const supabase = await createClient()
 
-    const email = formData.get('email') as string
+    const emailOrUsername = formData.get('email') as string
     const password = formData.get('password') as string
+
+    let email = emailOrUsername
+
+    // If the user typed a username instead of an email, look up the email from public.profiles
+    if (!emailOrUsername.includes('@')) {
+        const { data: profile } = await (supabase
+            .from('profiles') as any)
+            .select('email')
+            .eq('username', emailOrUsername)
+            .maybeSingle()
+
+        if (profile?.email) {
+            email = profile.email
+        }
+    }
 
     const { error } = await supabase.auth.signInWithPassword({
         email,
@@ -28,14 +43,20 @@ export async function signup(formData: FormData) {
 
     const email = formData.get('email') as string
     const password = formData.get('password') as string
-    const fullName = formData.get('fullName') as string
+    const firstName = formData.get('firstName') as string
+    const middleName = formData.get('middleName') as string
+    const lastName = formData.get('lastName') as string
+    const username = formData.get('username') as string
 
     const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
             data: {
-                full_name: fullName,
+                first_name: firstName,
+                middle_name: middleName || null,
+                last_name: lastName,
+                username: username,
             },
         },
     })
@@ -51,7 +72,5 @@ export async function signup(formData: FormData) {
 export async function signOut() {
     const supabase = await createClient()
     await supabase.auth.signOut()
-
-    revalidatePath('/', 'layout')
     redirect('/login')
 }

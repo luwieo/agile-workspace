@@ -43,15 +43,15 @@ export default function LoginPage() {
 
                 <form onSubmit={handleSubmit} className="mt-6 space-y-4">
                     <div>
-                        <label className="block text-xs font-medium uppercase tracking-wider text-slate-500">
-                            Email
+                        <label className="block text-xs font-medium uppercase tracking-wider text-slate-600">
+                            Username or Email
                         </label>
                         <input
-                            name="email"
-                            type="email"
+                            name="identifier"
+                            type="text"
                             required
-                            placeholder="jane@example.com"
-                            className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 transition focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                            placeholder="username or email@email.com"
+                            className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
                         />
                     </div>
 
