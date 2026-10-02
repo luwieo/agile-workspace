@@ -1,23 +1,29 @@
 'use client'
 
-// tldraw v5 ships as the unscoped 'tldraw' package — use that CSS path
-import 'tldraw/tldraw.css'
+// Excalidraw CSS — required for correct rendering (MIT license, production-safe)
+import '@excalidraw/excalidraw/index.css'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import {
     LiveblocksProvider,
     RoomProvider,
-    useRoom,
+    useEventListener,
+    useBroadcastEvent,
     ClientSideSuspense,
 } from '@liveblocks/react'
-import { Tldraw } from 'tldraw'
 import { isReadOnly, type WorkspaceRole } from '@/lib/rbac'
 import { saveWhiteboard } from '@/app/(dashboard)/workspace/actions'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TldrawBoardProps = {
+type ExcalidrawAPI = {
+    updateScene: (scene: { elements: any[]; appState?: any }) => void
+    getSceneElements: () => readonly any[]
+    getAppState: () => any
+}
+
+type BoardProps = {
     projectId: string
     workspaceId: string
     initialData: Record<string, unknown> | null
@@ -39,173 +45,123 @@ function WhiteboardSkeleton() {
     )
 }
 
-// ─── Inner board: tldraw + Liveblocks Yjs sync ────────────────────────────────
-// Wrapped in next/dynamic (ssr:false) — Tldraw uses window/canvas APIs.
-// useRoom() is valid here because this component renders inside <RoomProvider>.
+// ─── Inner board: Excalidraw + Liveblocks Broadcast sync ──────────────────────
+// MIT-licensed canvas (Excalidraw) + Liveblocks for reliable real-time sync.
+// useRoom() is valid here because this renders inside <RoomProvider>.
 
-function TldrawBoard({ projectId, workspaceId, initialData, userRole }: TldrawBoardProps) {
-    const room = useRoom()
-    const [editor, setEditor] = useState<any>(null)
+function ExcalidrawBoard({ projectId, workspaceId, initialData, userRole }: BoardProps) {
+    const broadcast = useBroadcastEvent()
+    const excalidrawApiRef = useRef<ExcalidrawAPI | null>(null)
+    const isSuppressingRef = useRef(false)
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    // yRecordsRef holds the live Yjs map — used by the debounced save so we
-    // never need to call editor.store.getSnapshot() (removed in tldraw v5).
-    const yRecordsRef = useRef<any>(null)
     const viewOnly = isReadOnly(userRole)
 
-    // ── Keep isReadonly in sync with RBAC role ─────────────────────────────────
-    useEffect(() => {
-        if (!editor) return
-        editor.updateInstanceState({ isReadonly: viewOnly })
-    }, [editor, viewOnly])
+    // Initial elements from DB (Excalidraw format or null)
+    const initialElements: any[] = Array.isArray(initialData)
+        ? initialData
+        : Array.isArray((initialData as any)?.elements)
+            ? (initialData as any).elements
+            : []
 
-    // ── Yjs ↔ tldraw sync ─────────────────────────────────────────────────────
-    useEffect(() => {
-        if (!editor || !room) return
+    // ── Liveblocks broadcast sync ────────────────────────────────────────────
+    // useEventListener fires when any peer broadcasts an event to this room.
+    useEventListener(({ event }: { event: any }) => {
+        if (event.type !== 'elements-update') return
+        if (!excalidrawApiRef.current) return
 
-        let destroyed = false
-        let cleanupFns: Array<() => void> = []
-
-        async function setup() {
-            const [{ Doc }, { LiveblocksYjsProvider }] = await Promise.all([
-                import('yjs'),
-                import('@liveblocks/yjs'),
-            ])
-
-            if (destroyed) return
-
-            const yDoc = new Doc()
-            const provider = new LiveblocksYjsProvider(room, yDoc)
-            const yRecords = yDoc.getMap<any>('tldraw')
-            yRecordsRef.current = yRecords  // expose for the debounced save
-
-            // Wait for Yjs to sync before potentially bootstrapping from DB
-            await new Promise<void>((resolve) => {
-                if (provider.synced) return resolve()
-                provider.once('synced', resolve)
-                setTimeout(resolve, 3000) // don't block indefinitely
-            })
-
-            if (destroyed) return
-
-            // Bootstrap from DB snapshot only when the room is empty
-            if (yRecords.size === 0 && initialData?.store) {
-                yDoc.transact(() => {
-                    for (const [id, record] of Object.entries(initialData.store as Record<string, any>)) {
-                        yRecords.set(id, record)
-                    }
-                })
-            }
-
-            // Apply current Yjs state to tldraw store
-            if (yRecords.size > 0) {
-                editor.store.mergeRemoteChanges(() => {
-                    editor.store.put([...yRecords.values()])
-                })
-            }
-
-            // 1. tldraw → Yjs: only broadcast user-initiated deltas
-            const storeUnsub = editor.store.listen(
-                (update: any) => {
-                    if (update.source !== 'user') return // ignore remote echoes
-
-                    yDoc.transact(() => {
-                        for (const record of Object.values<any>(update.changes.added)) {
-                            yRecords.set(record.id, record)
-                        }
-                        for (const [, next] of Object.values<any>(update.changes.updated)) {
-                            yRecords.set(next.id, next)
-                        }
-                        for (const id of Object.keys(update.changes.removed)) {
-                            yRecords.delete(id)
-                        }
-                    })
-
-                    // Debounced silent DB save — reads from Yjs (not editor.store.getSnapshot
-                    // which was removed in tldraw v5). No state mutation, no re-render.
-                    if (!viewOnly) {
-                        if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-                        saveTimerRef.current = setTimeout(async () => {
-                            try {
-                                const yMap = yRecordsRef.current
-                                if (!yMap) return
-                                const records: Record<string, any> = {}
-                                yMap.forEach((value: any, key: string) => { records[key] = value })
-                                const fd = new FormData()
-                                fd.set('projectId', projectId)
-                                fd.set('data', JSON.stringify({ store: records }))
-                                await saveWhiteboard(fd)
-                            } catch (err) {
-                                console.error('[Whiteboard] DB save failed:', err)
-                            }
-                        }, 2000)
-                    }
-                },
-                { source: 'user', scope: 'document' }
+        // CRDT merge via reconcileElements — resolves conflicts by element version
+        import('@excalidraw/excalidraw').then(({ reconcileElements }) => {
+            if (!excalidrawApiRef.current) return
+            const localElements = excalidrawApiRef.current.getSceneElements()
+            const appState = excalidrawApiRef.current.getAppState()
+            const merged = reconcileElements(
+                localElements as any,
+                event.elements,
+                appState
             )
+            isSuppressingRef.current = true
+            excalidrawApiRef.current.updateScene({ elements: merged })
+            if (isSuppressingRef.current) isSuppressingRef.current = false
+        }).catch(() => {
+            isSuppressingRef.current = true
+            excalidrawApiRef.current?.updateScene({ elements: event.elements })
+            if (isSuppressingRef.current) isSuppressingRef.current = false
+        })
+    })
 
-            // 2. Yjs → tldraw: merge remote changes safely (won't echo back)
-            const yObserver = (event: any) => {
-                if (destroyed) return
-                editor.store.mergeRemoteChanges(() => {
-                    const puts: any[] = []
-                    const deletes: string[] = []
+    // ── Canvas change → broadcast + debounced DB save ─────────────────────────
+    const handleChange = useCallback((elements: readonly any[]) => {
+        // Suppress flag: this change was triggered by our own updateScene() (remote data).
+        // Reset synchronously and return so we don't echo it back to peers.
+        if (isSuppressingRef.current) {
+            isSuppressingRef.current = false
+            return
+        }
 
-                    event.changes.keys.forEach((change: any, key: string) => {
-                        if (change.action === 'add' || change.action === 'update') {
-                            const record = yRecords.get(key)
-                            if (record) puts.push(record)
-                        } else if (change.action === 'delete') {
-                            deletes.push(key)
-                        }
-                    })
+        // Broadcast to peers via Liveblocks
+        broadcast({ type: 'elements-update', elements })
 
-                    if (puts.length > 0) editor.store.put(puts)
-                    if (deletes.length > 0) editor.store.remove(deletes as any)
-                })
+        if (viewOnly) return
+
+        // Debounced silent DB save
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = setTimeout(async () => {
+            try {
+                const fd = new FormData()
+                fd.set('projectId', projectId)
+                fd.set('data', JSON.stringify(elements))
+                await saveWhiteboard(fd)
+            } catch (err) {
+                console.error('[Whiteboard] DB save failed:', err)
             }
+        }, 2000)
+    }, [broadcast, viewOnly, projectId])
 
-            yRecords.observe(yObserver)
-
-            cleanupFns = [
-                storeUnsub,
-                () => yRecords.unobserve(yObserver),
-                () => provider.destroy(),
-                () => yDoc.destroy(),
-            ]
-        }
-
-        setup().catch(console.error)
-
-        return () => {
-            destroyed = true
-            cleanupFns.forEach((fn) => fn())
-            if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editor, room])
+    // Lazy-load Excalidraw component (browser-only APIs)
+    const ExcalidrawComponent = useLazyExcalidraw()
+    if (!ExcalidrawComponent) return <WhiteboardSkeleton />
 
     return (
-        // Brute-force inline height — cannot collapse regardless of parent chain
         <div style={{ width: '100%', height: '70vh', minHeight: '600px', position: 'relative' }}>
             {viewOnly && (
                 <div className="absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-xs font-medium text-slate-600 shadow-md ring-1 ring-slate-200 backdrop-blur-sm">
                     👁 View only · Updates live as your team draws
                 </div>
             )}
-            <Tldraw
-                onMount={(e) => {
-                    // Set read-only immediately — before the first render
-                    e.updateInstanceState({ isReadonly: viewOnly })
-                    setEditor(e)
+            <ExcalidrawComponent
+                initialData={{
+                    elements: initialElements,
+                    appState: { viewModeEnabled: viewOnly },
+                }}
+                viewModeEnabled={viewOnly}
+                onChange={(elements, _appState, _files) => handleChange(elements)}
+                excalidrawAPI={(api: any) => { excalidrawApiRef.current = api }}
+                UIOptions={{
+                    canvasActions: {
+                        export: false,
+                        loadScene: !viewOnly,
+                        saveToActiveFile: false,
+                    },
                 }}
             />
         </div>
     )
 }
 
-// Dynamically imported so Tldraw's browser APIs (window/canvas) never run on the server
-const TldrawBoardDynamic = dynamic(
-    () => Promise.resolve(TldrawBoard),
+// Lazy-load Excalidraw inside a hook — avoids SSR (window/canvas APIs)
+function useLazyExcalidraw() {
+    const [Component, setComponent] = useState<any>(null)
+    useEffect(() => {
+        import('@excalidraw/excalidraw')
+            .then(({ Excalidraw }) => setComponent(() => Excalidraw))
+            .catch(console.error)
+    }, [])
+    return Component
+}
+
+// Wrap in next/dynamic so the whole subtree is client-only
+const ExcalidrawBoardDynamic = dynamic(
+    () => Promise.resolve(ExcalidrawBoard),
     { ssr: false, loading: () => <WhiteboardSkeleton /> }
 )
 
@@ -225,18 +181,18 @@ export default function WhiteboardTab({
     const roomId = `whiteboard-${workspaceId}`
 
     return (
-        <div className="relative h-full w-full flex-1 overflow-hidden">
+        <div className="relative w-full flex-1">
             <LiveblocksProvider authEndpoint="/api/liveblocks-auth">
                 <RoomProvider
                     id={roomId}
                     initialPresence={{ cursor: null }}
                 >
                     {/*
-                      ClientSideSuspense shows the skeleton while Liveblocks
-                      is authenticating. Without it the canvas is blank during auth.
+                      ClientSideSuspense shows the skeleton while Liveblocks authenticates.
+                      Without it the canvas is blank during auth.
                     */}
                     <ClientSideSuspense fallback={<WhiteboardSkeleton />}>
-                        <TldrawBoardDynamic
+                        <ExcalidrawBoardDynamic
                             projectId={projectId}
                             workspaceId={workspaceId}
                             initialData={initialData}
