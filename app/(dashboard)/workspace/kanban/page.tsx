@@ -81,7 +81,7 @@ export default async function KanbanPage({
             </div>
 
             {/* Interactive Kanban Board */}
-            <KanbanBoard initialTasks={boardTasks} />
+            <KanbanBoard initialTasks={boardTasks} projectId={activeProject?.id} />
         </div>
     )
 }

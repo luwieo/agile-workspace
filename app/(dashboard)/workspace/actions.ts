@@ -97,3 +97,37 @@ export async function updateTaskStatus(taskId: string, status: 'backlog' | 'todo
 
     revalidatePath('/workspace/kanban')
 }
+
+// 4. Update task details
+export async function updateTask(formData: FormData) {
+    const supabase = await createClient()
+    const taskId = formData.get('taskId') as string
+    const title = formData.get('title') as string
+    const description = formData.get('description') as string
+    const priority = formData.get('priority') as string
+
+    const { error } = await (supabase.from('tasks') as any)
+        .update({
+            title,
+            description: description || null,
+            priority,
+        })
+        .eq('id', taskId)
+
+    if (error) throw new Error(error.message)
+
+    revalidatePath('/workspace/kanban')
+}
+
+// 5. Delete task
+export async function deleteTask(taskId: string) {
+    const supabase = await createClient()
+
+    const { error } = await (supabase.from('tasks') as any)
+        .delete()
+        .eq('id', taskId)
+
+    if (error) throw new Error(error.message)
+
+    revalidatePath('/workspace/kanban')
+}
