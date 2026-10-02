@@ -64,15 +64,25 @@ export async function createTask(formData: FormData) {
     const title = formData.get('title') as string
     const priority = formData.get('priority') as string
     const projectId = formData.get('projectId') as string
-
-    // Allow the form to specify status, otherwise default to 'todo'
     const status = (formData.get('status') as string) || 'todo'
+    const assigneeId = (formData.get('assigneeId') as string) || null
+    const tagsRaw = (formData.get('tags') as string) || ''
+    const description = (formData.get('description') as string) || null
+    const dueDate = (formData.get('dueDate') as string) || null
+
+    const tags = tagsRaw
+        ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean)
+        : []
 
     const { error } = await (supabase.from('tasks') as any).insert({
         title,
         priority,
         project_id: projectId,
-        status: status,
+        status,
+        assignee_id: assigneeId || null,
+        tags: tags.length > 0 ? tags : null,
+        description: description || null,
+        due_date: dueDate || null,
     })
 
     if (error) throw new Error(error.message)
@@ -114,6 +124,8 @@ export async function updateTask(formData: FormData) {
             .filter(Boolean)
         : []
 
+    const dueDate = (formData.get('dueDate') as string) || null
+
     const { error } = await (supabase.from('tasks') as any)
         .update({
             title,
@@ -121,6 +133,7 @@ export async function updateTask(formData: FormData) {
             priority,
             assignee_id: assigneeId === 'unassigned' || !assigneeId ? null : assigneeId,
             tags: tags,
+            due_date: dueDate || null,
         })
         .eq('id', taskId)
 
@@ -157,7 +170,8 @@ export async function getWorkspaceMembers(workspaceId: string) {
         first_name,
         last_name,
         username,
-        email
+        email,
+        avatar_url
       )
     `)
         .eq('workspace_id', workspaceId)
@@ -174,6 +188,8 @@ export async function getWorkspaceMembers(workspaceId: string) {
             ? `${m.profiles.first_name || ''} ${m.profiles.last_name || ''}`.trim() || m.profiles.username || m.profiles.email
             : m.user_id,
         email: m.profiles?.email || '',
+        username: m.profiles?.username || null,
+        avatarUrl: m.profiles?.avatar_url || null,
     }))
 }
 

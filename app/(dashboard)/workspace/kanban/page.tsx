@@ -1,8 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
-import { createTask, getWorkspaceMembers } from '../actions'
+import { getWorkspaceMembers } from '../actions'
 import KanbanBoard from './kanban-board'
+import MemberAvatarGroup, { type AvatarMember } from '@/components/member-avatar-group'
+import AddTaskButton from './add-task-button'
+import SprintTabs from '@/components/sprint-tabs'
 
 export default async function KanbanPage({
     searchParams,
@@ -25,7 +27,7 @@ export default async function KanbanPage({
     const { data: projects } = await projectQuery.limit(1)
     const activeProject = projects?.[0]
 
-    // Query tasks belonging to this project
+    // Query tasks belonging to this project (all statuses for summary tab)
     const { data: tasks } = activeProject
         ? await (supabase.from('tasks') as any)
             .select('*')
@@ -33,62 +35,48 @@ export default async function KanbanPage({
             .order('created_at', { ascending: true })
         : { data: [] }
 
-    // Fetch workspace members for task assignments
+    // Fetch workspace members
     const effectiveWorkspaceId = activeProject?.workspace_id || workspaceId
-    const members = effectiveWorkspaceId ? await getWorkspaceMembers(effectiveWorkspaceId) : []
+    const members: AvatarMember[] = effectiveWorkspaceId ? await getWorkspaceMembers(effectiveWorkspaceId) : []
 
     const boardTasks = tasks || []
+    const backlogHref = `/workspace/backlog${workspaceId ? `?workspaceId=${workspaceId}` : ''}`
 
     return (
-        <div className="flex h-[calc(100vh-3.5rem)] flex-col bg-slate-50">
+        <div className="flex h-screen flex-col overflow-hidden bg-slate-50">
             {/* Board Header */}
             <div className="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-4">
-                <div className="flex items-center gap-4">
-                    <Link href="/workspace" className="text-slate-400 transition hover:text-slate-600">
-                        ← Back
-                    </Link>
+                <div className="flex items-center gap-6">
                     <div>
-                        <h1 className="text-2xl font-bold tracking-tight text-slate-800">
+                        <h1 className="text-xl font-bold tracking-tight text-slate-800">
                             {activeProject?.name || 'Sprint Board'}
                         </h1>
-                        <p className="text-sm text-slate-500">{boardTasks.length} Active Tasks</p>
+                        <p className="text-xs text-slate-400">
+                            {boardTasks.length} task{boardTasks.length !== 1 ? 's' : ''}
+                        </p>
                     </div>
+
+                    {/* Team member avatar group */}
+                    <MemberAvatarGroup members={members} />
                 </div>
 
-                {/* Quick Add Task Form */}
+                {/* Add Task modal trigger */}
                 {activeProject && (
-                    <form action={createTask} className="flex items-center gap-2">
-                        <input type="hidden" name="projectId" value={activeProject.id} />
-                        <input
-                            name="title"
-                            required
-                            placeholder="New task title..."
-                            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-800 outline-none focus:border-teal-500 focus:bg-white"
-                        />
-                        <select
-                            name="priority"
-                            defaultValue="medium"
-                            className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-600 outline-none focus:border-teal-500"
-                        >
-                            <option value="low">Low</option>
-                            <option value="medium">Medium</option>
-                            <option value="high">High</option>
-                        </select>
-                        <button
-                            type="submit"
-                            className="rounded-xl bg-[#1e3a5f] px-3.5 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#0d9488]"
-                        >
-                            + Add
-                        </button>
-                    </form>
+                    <AddTaskButton projectId={activeProject.id} members={members} />
                 )}
             </div>
 
-            {/* Interactive Kanban Board */}
-            <KanbanBoard
-                initialTasks={boardTasks}
-                projectId={activeProject?.id}
-                members={members}
+            {/* Sprint tabs — Summary | Board | Backlog | Timeline */}
+            <SprintTabs
+                tasks={boardTasks}
+                backlogHref={backlogHref}
+                board={
+                    <KanbanBoard
+                        initialTasks={boardTasks}
+                        projectId={activeProject?.id}
+                        members={members}
+                    />
+                }
             />
         </div>
     )

@@ -1,32 +1,41 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 
-export async function login(formData: FormData) {
+export async function login(formData: FormData): Promise<{ error?: string }> {
     const supabase = await createClient()
 
-    const emailOrUsername = formData.get('email') as string
-    const password = formData.get('password') as string
+    // 1. Extract values safely
+    const rawInput = (formData.get('emailOrUsername') || formData.get('email')) as string | null
+    const emailOrUsername = rawInput?.trim() || ''
+    const password = (formData.get('password') as string) || ''
 
-    let email = emailOrUsername
-
-    // If the user typed a username instead of an email, look up the email from public.profiles
-    if (!emailOrUsername.includes('@')) {
-        const { data: profile } = await (supabase
-            .from('profiles') as any)
-            .select('email')
-            .eq('username', emailOrUsername)
-            .maybeSingle()
-
-        if (profile?.email) {
-            email = profile.email
-        }
+    if (!emailOrUsername || !password) {
+        return { error: 'Please enter both your email/username and password.' }
     }
 
+    let loginEmail = emailOrUsername
+
+    // 2. If username, lookup corresponding email
+    if (!emailOrUsername.includes('@')) {
+        const { data: profile, error: profileErr } = await (supabase
+            .from('profiles') as any)
+            .select('email')
+            .ilike('username', emailOrUsername)
+            .maybeSingle()
+
+        if (profileErr || !profile?.email) {
+            return { error: 'No account found with that username.' }
+        }
+
+        loginEmail = profile.email
+    }
+
+    // 3. Supabase Auth sign-in
     const { error } = await supabase.auth.signInWithPassword({
-        email,
+        email: loginEmail,
         password,
     })
 

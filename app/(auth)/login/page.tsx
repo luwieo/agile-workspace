@@ -47,11 +47,11 @@ export default function LoginPage() {
                             Username or Email
                         </label>
                         <input
-                            name="identifier"
                             type="text"
+                            name="emailOrUsername"
                             required
-                            placeholder="username or email@email.com"
-                            className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                            placeholder="Email or @username"
+                            className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-teal-500"
                         />
                     </div>
 

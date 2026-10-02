@@ -35,6 +35,7 @@ export type Task = {
     assignee_id?: string | null
     tags?: string[] | null
     project_id?: string
+    due_date?: string | null
 }
 
 const COLUMNS: { id: Task['status']; label: string }[] = [
@@ -57,6 +58,11 @@ export default function KanbanBoard({
     const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
     const [selectedTask, setSelectedTask] = useState<Task | null>(null)
     const [isPending, startTransition] = useTransition()
+
+    // Filter state
+    const [search, setSearch] = useState('')
+    const [priorityFilter, setPriorityFilter] = useState<string>('all')
+    const [tagFilter, setTagFilter] = useState<string>('all')
 
     useEffect(() => {
         setTasks(initialTasks)
@@ -216,6 +222,7 @@ export default function KanbanBoard({
         const updatedDesc = formData.get('description') as string
         const updatedPriority = formData.get('priority') as Task['priority']
         const updatedAssignee = formData.get('assigneeId') as string
+        const updatedDueDate = (formData.get('dueDate') as string) || null
 
         const previousTasks = [...tasks]
         setTasks((prev) =>
@@ -227,6 +234,7 @@ export default function KanbanBoard({
                         description: updatedDesc,
                         priority: updatedPriority,
                         assignee_id: updatedAssignee === 'unassigned' ? null : updatedAssignee,
+                        due_date: updatedDueDate,
                     }
                     : t
             )
@@ -267,9 +275,78 @@ export default function KanbanBoard({
 
     return (
         <>
+            {/* Filter Toolbar */}
+            <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-8 py-3">
+                {/* Search */}
+                <div className="relative">
+                    <svg className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input
+                        type="search"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search tasks..."
+                        className="w-44 rounded-xl border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                    />
+                </div>
+
+                {/* Priority filter chips */}
+                <div className="flex items-center gap-1">
+                    {(['all', 'low', 'medium', 'high'] as const).map((p) => (
+                        <button
+                            key={p}
+                            onClick={() => setPriorityFilter(p)}
+                            className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                                priorityFilter === p
+                                    ? p === 'high' ? 'bg-red-500 text-white'
+                                        : p === 'medium' ? 'bg-amber-400 text-white'
+                                        : p === 'low' ? 'bg-slate-400 text-white'
+                                        : 'bg-[#1e3a5f] text-white'
+                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                        >
+                            {p === 'all' ? 'All Priorities' : p}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Tag filter */}
+                {(() => {
+                    const allTags = Array.from(new Set(tasks.flatMap((t) => t.tags || []))).sort()
+                    if (allTags.length === 0) return null
+                    return (
+                        <select
+                            value={tagFilter}
+                            onChange={(e) => setTagFilter(e.target.value)}
+                            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600 outline-none transition focus:border-teal-500"
+                        >
+                            <option value="all">All Tags</option>
+                            {allTags.map((tag) => (
+                                <option key={tag} value={tag}>{tag}</option>
+                            ))}
+                        </select>
+                    )
+                })()}
+
+                {/* Clear filters */}
+                {(search || priorityFilter !== 'all' || tagFilter !== 'all') && (
+                    <button
+                        onClick={() => { setSearch(''); setPriorityFilter('all'); setTagFilter('all') }}
+                        className="ml-auto rounded-lg px-2 py-1 text-xs font-medium text-slate-400 transition hover:text-slate-600"
+                    >
+                        Clear filters ×
+                    </button>
+                )}
+            </div>
+
             <div className="flex flex-1 gap-6 overflow-x-auto p-8">
                 {COLUMNS.map((column) => {
-                    const columnTasks = tasks.filter((t) => t.status === column.id)
+                    const columnTasks = tasks
+                        .filter((t) => t.status === column.id)
+                        .filter((t) => !search || t.title.toLowerCase().includes(search.toLowerCase()))
+                        .filter((t) => priorityFilter === 'all' || t.priority === priorityFilter)
+                        .filter((t) => tagFilter === 'all' || (t.tags || []).includes(tagFilter))
                     const isTarget = dragOverColumn === column.id
 
                     return (
@@ -333,6 +410,22 @@ export default function KanbanBoard({
                                                     {task.description}
                                                 </p>
                                             )}
+
+                                            {/* Due date badge */}
+                                            {task.due_date && (() => {
+                                                const today = new Date().toISOString().split('T')[0]
+                                                const overdue = task.due_date < today
+                                                return (
+                                                    <div className={`mt-2 flex items-center gap-1 text-[11px] font-medium ${
+                                                        overdue ? 'text-red-600' : 'text-slate-500'
+                                                    }`}>
+                                                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                        </svg>
+                                                        {overdue ? 'Overdue · ' : ''}{task.due_date}
+                                                    </div>
+                                                )
+                                            })()}
 
                                             {task.tags && task.tags.length > 0 && (
                                                 <div className="mt-3 flex flex-wrap gap-1.5">
@@ -431,6 +524,19 @@ export default function KanbanBoard({
                                         <option value="medium">Medium</option>
                                         <option value="high">High</option>
                                     </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+                                        Deadline
+                                    </label>
+                                    <input
+                                        name="dueDate"
+                                        type="date"
+                                        min={new Date().toISOString().split('T')[0]}
+                                        defaultValue={selectedTask.due_date || ''}
+                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                    />
                                 </div>
 
                                 <div>
