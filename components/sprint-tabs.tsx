@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import dynamic from 'next/dynamic'
 import { type Task } from '@/app/(dashboard)/workspace/kanban/kanban-board'
 import { type AvatarMember } from '@/components/member-avatar-group'
 import {
@@ -9,10 +10,22 @@ import {
     updateMemberRole,
     addWorkspaceMember,
 } from '@/app/(dashboard)/workspace/actions'
+import { type WorkspaceRole } from '@/lib/rbac'
 
-type Tab = 'Summary' | 'Board' | 'Backlog' | 'Timeline' | 'Settings'
+// Loaded dynamically — Excalidraw uses browser-only APIs
+const WhiteboardTab = dynamic(() => import('@/components/whiteboard'), {
+    ssr: false,
+    loading: () => (
+        <div className="flex flex-1 animate-pulse flex-col items-center justify-center gap-3">
+            <div className="h-12 w-12 rounded-2xl bg-slate-200" />
+            <div className="h-3 w-28 rounded-full bg-slate-200" />
+        </div>
+    ),
+})
 
-const BASE_TABS: Tab[] = ['Summary', 'Board', 'Backlog', 'Timeline']
+type Tab = 'Summary' | 'Board' | 'Backlog' | 'Whiteboard' | 'Timeline' | 'Settings'
+
+const BASE_TABS: Tab[] = ['Summary', 'Board', 'Backlog', 'Whiteboard', 'Timeline']
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -435,6 +448,10 @@ export default function SprintTabs({
     backlogHref,
     isOwner = false,
     settingsData,
+    projectId,
+    whiteboardData = [],
+    currentUser,
+    userRole,
 }: {
     tasks: Task[]
     members?: AvatarMember[]
@@ -446,6 +463,10 @@ export default function SprintTabs({
         members: AvatarMember[]
         currentUserId: string
     }
+    projectId?: string
+    whiteboardData?: any[]
+    currentUser?: { id: string; name: string }
+    userRole?: WorkspaceRole | null
 }) {
     const tabs: Tab[] = isOwner ? [...BASE_TABS, 'Settings'] : BASE_TABS
     const [activeTab, setActiveTab] = useState<Tab>('Board')
@@ -475,6 +496,21 @@ export default function SprintTabs({
                     </div>
                 )}
                 {activeTab === 'Timeline' && <TimelineTab />}
+                {activeTab === 'Whiteboard' && projectId && currentUser && (
+                    <div className="flex flex-1 overflow-hidden">
+                        <WhiteboardTab
+                            projectId={projectId}
+                            initialData={whiteboardData}
+                            currentUser={currentUser}
+                            userRole={userRole ?? null}
+                        />
+                    </div>
+                )}
+                {activeTab === 'Whiteboard' && !projectId && (
+                    <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
+                        No active project — open a workspace to use the whiteboard.
+                    </div>
+                )}
                 {activeTab === 'Settings' && settingsData && (
                     <div className="flex-1 overflow-y-auto">
                         <SettingsTab

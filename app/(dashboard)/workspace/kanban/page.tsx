@@ -25,6 +25,8 @@ export default async function KanbanPage({
             .eq('id', user.id)
             .maybeSingle(),
         (() => {
+            // Do NOT include whiteboard_data here — column may not exist yet if migration hasn't run.
+            // A missing column causes the entire query to error, making activeProject null.
             let q = (supabase.from('projects') as any).select('id, name, workspace_id')
             if (workspaceId) q = q.eq('workspace_id', workspaceId)
             return q.limit(1)
@@ -112,6 +114,21 @@ export default async function KanbanPage({
 
     const backlogHref = `/workspace/backlog${workspaceId ? `?workspaceId=${workspaceId}` : ''}`
 
+    // Fetch whiteboard_data separately so a missing column (migration not yet run)
+    // never breaks the main project query / task loading above.
+    let whiteboardData: any[] = []
+    if (activeProject?.id) {
+        try {
+            const { data: wbData } = await (supabase.from('projects') as any)
+                .select('whiteboard_data')
+                .eq('id', activeProject.id)
+                .maybeSingle()
+            whiteboardData = wbData?.whiteboard_data || []
+        } catch {
+            // Column doesn't exist yet — silently ignore
+        }
+    }
+
     // Settings data — guarded by isOwner only; workspaceResult.data used with fallbacks
     // so a null response (e.g. tags column not yet migrated) doesn't drop the whole object
     const settingsData = isOwner ? {
@@ -156,13 +173,17 @@ export default async function KanbanPage({
                 )}
             </div>
 
-            {/* Sprint tabs: Summary | Board | Backlog | Timeline | Settings (owner only) */}
+            {/* Sprint tabs */}
             <SprintTabs
                 tasks={boardTasks}
                 members={avatarMembers}
                 backlogHref={backlogHref}
                 isOwner={isOwner}
                 settingsData={settingsData}
+                projectId={activeProject?.id}
+                whiteboardData={whiteboardData}
+                currentUser={{ id: user.id, name: currentUserName }}
+                userRole={selfMembership?.role as WorkspaceRole | undefined}
                 board={
                     <KanbanBoard
                         initialTasks={boardTasks}

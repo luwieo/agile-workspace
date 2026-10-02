@@ -420,6 +420,42 @@ export async function removeWorkspaceMember(formData: FormData) {
     revalidatePath('/workspace/settings')
 }
 
+// 12. Save whiteboard snapshot (owner, developer, member — not viewer)
+export async function saveWhiteboard(formData: FormData) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    const projectId = formData.get('projectId') as string
+    const dataRaw = formData.get('data') as string
+    const data = dataRaw ? JSON.parse(dataRaw) : []
+
+    // Resolve workspace to check role
+    const { data: project } = await (supabase.from('projects') as any)
+        .select('workspace_id')
+        .eq('id', projectId)
+        .maybeSingle()
+
+    const { data: membership } = project?.workspace_id
+        ? await (supabase.from('workspace_members') as any)
+            .select('role')
+            .eq('workspace_id', project.workspace_id)
+            .eq('user_id', user.id)
+            .maybeSingle()
+        : { data: null }
+
+    if (!canEditTasks(membership?.role)) {
+        throw new Error('Forbidden: Viewers cannot save the whiteboard.')
+    }
+
+    const { error } = await (supabase.from('projects') as any)
+        .update({ whiteboard_data: data })
+        .eq('id', projectId)
+
+    if (error) throw new Error(error.message)
+    // No revalidatePath — realtime Broadcast handles peer sync
+}
+
 // 11. Update a member's role (owner only, cannot change own role)
 export async function updateMemberRole(formData: FormData) {
     const supabase = await createClient()
