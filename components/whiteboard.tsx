@@ -1,22 +1,24 @@
 'use client'
 
-// Required — without this, Excalidraw renders as raw unstyled HTML/SVG
-import '@excalidraw/excalidraw/index.css'
+// tldraw CSS \u2014 required for correct rendering
+import '@tldraw/tldraw/tldraw.css'
 
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { createClient } from '@/lib/supabase/client'
+import { LiveblocksProvider, RoomProvider, useRoom } from '@liveblocks/react'
 import { isReadOnly, type WorkspaceRole } from '@/lib/rbac'
 import { saveWhiteboard } from '@/app/(dashboard)/workspace/actions'
 
-// Excalidraw must be loaded client-side only — it uses window/canvas APIs
-const ExcalidrawComponent = dynamic(
-    async () => {
-        const { Excalidraw } = await import('@excalidraw/excalidraw')
-        return Excalidraw
-    },
-    { ssr: false, loading: () => <WhiteboardSkeleton /> }
-)
+// \u2500\u2500\u2500 Types \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+type TldrawBoardProps = {
+    projectId: string
+    workspaceId: string
+    initialData: Record<string, unknown> | null
+    userRole: WorkspaceRole | null
+}
+
+// \u2500\u2500\u2500 Skeleton \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 function WhiteboardSkeleton() {
     return (
@@ -26,212 +28,219 @@ function WhiteboardSkeleton() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" />
                 </svg>
             </div>
-            <p className="text-sm font-medium text-slate-500">Loading whiteboard…</p>
+            <p className="text-sm font-medium text-slate-500">Loading whiteboard\u2026</p>
         </div>
     )
 }
 
-type ExcalidrawAPI = {
-    updateScene: (scene: { elements: any[]; appState?: any }) => void
-    getSceneElements: () => readonly any[]
-    getAppState: () => any
+// \u2500\u2500\u2500 Inner board (tldraw + Liveblocks Yjs sync) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+// Must be client-only \u2014 tldraw uses window/canvas APIs
+const TldrawBoardDynamic = dynamic(
+    () => Promise.resolve(TldrawBoard),
+    { ssr: false, loading: () => <WhiteboardSkeleton /> }
+)
+
+function TldrawBoard({ projectId, workspaceId, initialData, userRole }: TldrawBoardProps) {
+    const room = useRoom()
+    const [editor, setEditor] = useState<any>(null)
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const viewOnly = isReadOnly(userRole)
+
+    // \u2500\u2500 Yjs \u21c4 tldraw sync \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    useEffect(() => {
+        if (!editor || !room) return
+
+        let destroyed = false
+        let cleanupFns: Array<() => void> = []
+
+        async function setup() {
+            const [{ Doc }, { LiveblocksYjsProvider }] = await Promise.all([
+                import('yjs'),
+                import('@liveblocks/yjs'),
+            ])
+
+            if (destroyed) return
+
+            const yDoc = new Doc()
+            const provider = new LiveblocksYjsProvider(room, yDoc)
+            // Yjs map keyed by tldraw record ID
+            const yRecords = yDoc.getMap<any>('tldraw')
+
+            // \u2014\u2014 1. Initial load from Yjs (Liveblocks syncs this from the room) \u2014\u2014
+            // If the room is empty, bootstrap from the DB snapshot (initialData).
+            // We wait for Yjs to sync first to avoid overwriting peer state.
+            const waitForSync = () => new Promise<void>((resolve) => {
+                if (provider.synced) return resolve()
+                provider.once('synced', resolve)
+                // Timeout after 3s so we don\u2019t block indefinitely
+                setTimeout(resolve, 3000)
+            })
+
+            await waitForSync()
+            if (destroyed) return
+
+            if (yRecords.size === 0 && initialData?.store) {
+                // Bootstrap from DB snapshot (first user to open an empty board)
+                yDoc.transact(() => {
+                    for (const [id, record] of Object.entries(initialData.store as Record<string, any>)) {
+                        yRecords.set(id, record)
+                    }
+                })
+            }
+
+            // Apply current Yjs state to tldraw store
+            if (yRecords.size > 0) {
+                editor.store.mergeRemoteChanges(() => {
+                    editor.store.put([...yRecords.values()])
+                })
+            }
+
+            // \u2014\u2014 2. tldraw \u2192 Yjs: broadcast only local user changes (deltas, not snapshots) \u2014\u2014
+            const storeUnsub = editor.store.listen(
+                (update: any) => {
+                    // source === 'user' means the local user drew it.
+                    // Ignore 'remote' \u2014 that\u2019s what we applied from Yjs; re-broadcasting would loop.
+                    if (update.source !== 'user') return
+
+                    yDoc.transact(() => {
+                        // Added + updated records
+                        for (const record of Object.values<any>(update.changes.added)) {
+                            yRecords.set(record.id, record)
+                        }
+                        for (const [, next] of Object.values<any>(update.changes.updated)) {
+                            yRecords.set(next.id, next)
+                        }
+                        // Removed records
+                        for (const id of Object.keys(update.changes.removed)) {
+                            yRecords.delete(id)
+                        }
+                    })
+
+                    // Debounced DB save (background, no re-render)
+                    if (!viewOnly) {
+                        if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+                        saveTimerRef.current = setTimeout(async () => {
+                            try {
+                                const snapshot = editor.store.getSnapshot()
+                                const fd = new FormData()
+                                fd.set('projectId', projectId)
+                                fd.set('data', JSON.stringify(snapshot))
+                                await saveWhiteboard(fd)
+                            } catch (err) {
+                                console.error('[Whiteboard] DB save failed:', err)
+                            }
+                        }, 2000)
+                    }
+                },
+                // Only listen to document-scope changes (not UI state like viewport)
+                { source: 'user', scope: 'document' }
+            )
+
+            // \u2014\u2014 3. Yjs \u2192 tldraw: merge remote changes safely \u2014\u2014
+            const yObserver = (event: any) => {
+                if (destroyed) return
+                editor.store.mergeRemoteChanges(() => {
+                    // Put added/updated records
+                    const puts: any[] = []
+                    const deletes: string[] = []
+
+                    event.changes.keys.forEach((change: any, key: string) => {
+                        if (change.action === 'add' || change.action === 'update') {
+                            const record = yRecords.get(key)
+                            if (record) puts.push(record)
+                        } else if (change.action === 'delete') {
+                            deletes.push(key)
+                        }
+                    })
+
+                    if (puts.length > 0) editor.store.put(puts)
+                    if (deletes.length > 0) editor.store.remove(deletes as any)
+                })
+            }
+
+            yRecords.observe(yObserver)
+
+            cleanupFns = [
+                storeUnsub,
+                () => yRecords.unobserve(yObserver),
+                () => provider.destroy(),
+                () => yDoc.destroy(),
+            ]
+        }
+
+        setup().catch(console.error)
+
+        return () => {
+            destroyed = true
+            cleanupFns.forEach((fn) => fn())
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editor, room])
+
+    // \u2500\u2500 Render \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+    // Import Tldraw lazily within the dynamic component
+    const TldrawComponent = useTldrawComponent()
+
+    if (!TldrawComponent) return <WhiteboardSkeleton />
+
+    return (
+        <div className="absolute inset-0">
+            {viewOnly && (
+                <div className="absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-xs font-medium text-slate-600 shadow-md ring-1 ring-slate-200 backdrop-blur-sm">
+                    \ud83d\udc41 View only \u00b7 Updates live as your team draws
+                </div>
+            )}
+            <TldrawComponent
+                onMount={setEditor}
+                readOnly={viewOnly}
+            />
+        </div>
+    )
 }
 
-function userColor(userId: string) {
-    const hue = userId.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47 % 360
-    return `hsl(${hue}, 65%, 48%)`
+// Lazy-load tldraw inside a hook to avoid SSR issues
+function useTldrawComponent() {
+    const [Component, setComponent] = useState<any>(null)
+    useEffect(() => {
+        import('@tldraw/tldraw').then(({ Tldraw }) => setComponent(() => Tldraw))
+    }, [])
+    return Component
 }
+
+// \u2500\u2500\u2500 Public export: wraps in Liveblocks + Room providers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 export default function WhiteboardTab({
     projectId,
+    workspaceId,
     initialData,
-    currentUser,
     userRole,
 }: {
     projectId: string
-    initialData: any[]
-    currentUser: { id: string; name: string }
+    workspaceId: string
+    initialData: Record<string, unknown> | null
     userRole: WorkspaceRole | null
 }) {
-    const excalidrawApiRef = useRef<ExcalidrawAPI | null>(null)
-    const isSuppressingRef = useRef(false)
-    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    const cursorThrottleRef = useRef<number>(0)
-    const [cursors, setCursors] = useState<Record<string, { name: string; x: number; y: number; color: string }>>({})
-    const viewOnly = isReadOnly(userRole)
-
-    // canSend() mirrors the exact check inside Supabase's send():
-    // socket.isConnected() && channelAdapter.state === 'joined'
-    // Using ch.state alone misses socket connectivity, causing REST fallback.
-    const canSend = () => (channelRef.current as any)?.channelAdapter?.canPush() === true
-
-    // channelRef is populated inside the effect so Strict Mode cleanup fully
-    // removes the channel before the second mount creates a fresh instance.
-    const channelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
-
-    // ── Realtime setup ───────────────────────────────────────────────────────
-    useEffect(() => {
-        const supabase = createClient()
-
-        // Create a FRESH channel inside the effect so the cleanup can fully
-        // remove it — prevents the Strict Mode "join called twice" error.
-        const ch = supabase.channel(`whiteboard:${projectId}`, {
-            config: {
-                broadcast: { self: false, ack: false },
-                presence: { key: currentUser.id },
-            },
-        })
-        channelRef.current = ch
-
-        // ── Element sync: CRDT merge via reconcileElements ────────────────────
-        // Raw updateScene(remoteElements) would blow away concurrent local edits.
-        // reconcileElements(local, remote, appState) resolves conflicts using each
-        // element's `version` field — the higher version wins. This is Excalidraw's
-        // built-in CRDT equivalent (same algorithm used in excalidraw.com live collab).
-        ch.on('broadcast', { event: 'elements-update' }, async ({ payload }) => {
-            if (!excalidrawApiRef.current) return
-
-            const { reconcileElements } = await import('@excalidraw/excalidraw')
-            const localElements = excalidrawApiRef.current.getSceneElements()
-            const appState = excalidrawApiRef.current.getAppState()
-
-            // Merge: for each element id, keep the copy with the higher version.
-            // Preserves concurrent local edits instead of overwriting them.
-            const merged = reconcileElements(
-                localElements as any,
-                payload.elements,
-                appState
-            )
-
-            isSuppressingRef.current = true
-            excalidrawApiRef.current.updateScene({ elements: merged })
-            // Safety net: if onChange wasn't triggered (no actual diff), reset flag now
-            if (isSuppressingRef.current) isSuppressingRef.current = false
-        })
-
-        ch.on('broadcast', { event: 'cursor-move' }, ({ payload }) => {
-            setCursors((prev) => ({
-                ...prev,
-                [payload.userId]: { name: payload.name, x: payload.x, y: payload.y, color: userColor(payload.userId) },
-            }))
-        })
-
-        ch.on('presence', { event: 'leave' }, ({ leftPresences }) => {
-            setCursors((prev) => {
-                const next = { ...prev }
-                for (const p of leftPresences as any[]) delete next[p.key ?? p.userId]
-                return next
-            })
-        })
-
-        ch.subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-                ch.track({ userId: currentUser.id, name: currentUser.name })
-            }
-            // No need to track ready state manually — canSend() reads ch.state directly
-        })
-
-        return () => {
-            supabase.removeChannel(ch)
-            channelRef.current = null
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [projectId])
-
-    // ── Broadcast cursor on pointer move — throttled to 100ms ────────────────
-    const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-        if (viewOnly || !canSend()) return
-        const now = Date.now()
-        if (now - cursorThrottleRef.current < 100) return
-        cursorThrottleRef.current = now
-        channelRef.current?.send({
-            type: 'broadcast',
-            event: 'cursor-move',
-            payload: { userId: currentUser.id, name: currentUser.name, x: e.clientX, y: e.clientY },
-        })
-    }, [viewOnly, currentUser.id, currentUser.name])
-
-    // ── Canvas change → broadcast + debounced save ──────────────────────────
-    const handleChange = useCallback((elements: readonly any[]) => {
-        // Reset suppress flag synchronously — this is the loop-breaker.
-        // If the change was triggered by our own updateScene() (remote data),
-        // isSuppressingRef is true here. We reset it and return WITHOUT
-        // broadcasting so the remote change is NOT echoed back to peers.
-        if (isSuppressingRef.current) {
-            isSuppressingRef.current = false
-            return
-        }
-
-        // Only broadcast if the WebSocket channel is fully joined
-        if (!canSend()) return
-
-        // Local user drew something — broadcast to peers
-        channelRef.current?.send({
-            type: 'broadcast',
-            event: 'elements-update',
-            payload: { elements },
-        })
-
-        // Viewers never persist
-        if (viewOnly) return
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-        saveTimerRef.current = setTimeout(async () => {
-            try {
-                const fd = new FormData()
-                fd.set('projectId', projectId)
-                fd.set('data', JSON.stringify(elements))
-                await saveWhiteboard(fd)
-            } catch (err) {
-                console.error('[Whiteboard] Save failed:', err)
-            }
-        }, 1500)
-    }, [viewOnly, projectId])
+    const roomId = `whiteboard-${workspaceId}`
 
     return (
-        <div
-            className="relative flex-1 overflow-hidden"
-            style={{ height: '100%' }}
-            onPointerMove={handlePointerMove}
-        >
-            {/* Collaborator cursors overlay */}
-            {Object.entries(cursors).map(([uid, c]) => (
-                <div
-                    key={uid}
-                    className="pointer-events-none absolute z-50 flex items-center gap-1.5 transition-all duration-75"
-                    style={{ left: c.x, top: c.y, transform: 'translate(10px, 10px)' }}
+        <div className="relative flex-1 overflow-hidden" style={{ height: '100%' }}>
+            <LiveblocksProvider authEndpoint="/api/liveblocks-auth">
+                <RoomProvider
+                    id={roomId}
+                    initialPresence={{ cursor: null }}
                 >
-                    <div className="h-3 w-3 rounded-full ring-2 ring-white shadow" style={{ background: c.color }} />
-                    <span
-                        className="rounded-lg px-2 py-0.5 text-[11px] font-semibold text-white shadow"
-                        style={{ background: c.color }}
-                    >
-                        {c.name}
-                    </span>
-                </div>
-            ))}
-
-            {viewOnly && (
-                <div className="absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-xs font-medium text-slate-600 shadow-md ring-1 ring-slate-200 backdrop-blur-sm">
-                    👁 View only · Updates live as your team draws
-                </div>
-            )}
-
-            {/* Excalidraw needs an explicit-height parent — it positions its UI absolutely */}
-            <div className="absolute inset-0">
-                <ExcalidrawComponent
-                    initialData={{ elements: initialData, appState: { viewModeEnabled: viewOnly } }}
-                    viewModeEnabled={viewOnly}
-                    onChange={(elements) => handleChange(elements)}
-                    excalidrawAPI={(api: any) => { excalidrawApiRef.current = api }}
-                    UIOptions={{
-                        canvasActions: {
-                            export: false,
-                            loadScene: !viewOnly,
-                            saveToActiveFile: false,
-                        },
-                    }}
-                />
-            </div>
+                    <TldrawBoardDynamic
+                        projectId={projectId}
+                        workspaceId={workspaceId}
+                        initialData={initialData}
+                        userRole={userRole}
+                    />
+                </RoomProvider>
+            </LiveblocksProvider>
         </div>
     )
 }
+

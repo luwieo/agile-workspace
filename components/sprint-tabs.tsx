@@ -12,18 +12,9 @@ import {
 } from '@/app/(dashboard)/workspace/actions'
 import { type WorkspaceRole } from '@/lib/rbac'
 
-// Loaded dynamically — Excalidraw uses browser-only APIs
-const WhiteboardTab = dynamic(() => import('@/components/whiteboard'), {
-    ssr: false,
-    loading: () => (
-        <div className="flex flex-1 animate-pulse flex-col items-center justify-center gap-3">
-            <div className="h-12 w-12 rounded-2xl bg-slate-200" />
-            <div className="h-3 w-28 rounded-full bg-slate-200" />
-        </div>
-    ),
-})
+// tldraw + Liveblocks use browser-only APIs — must be dynamic
+const WhiteboardTab = dynamic(() => import('@/components/whiteboard'), { ssr: false })
 
-type Tab = 'Summary' | 'Board' | 'Backlog' | 'Whiteboard' | 'Timeline' | 'Settings'
 
 const BASE_TABS: Tab[] = ['Summary', 'Board', 'Backlog', 'Whiteboard', 'Timeline']
 
@@ -449,7 +440,8 @@ export default function SprintTabs({
     isOwner = false,
     settingsData,
     projectId,
-    whiteboardData = [],
+    workspaceId,
+    whiteboardData = null,
     currentUser,
     userRole,
 }: {
@@ -464,7 +456,8 @@ export default function SprintTabs({
         currentUserId: string
     }
     projectId?: string
-    whiteboardData?: any[]
+    workspaceId?: string
+    whiteboardData?: Record<string, unknown> | null
     currentUser?: { id: string; name: string }
     userRole?: WorkspaceRole | null
 }) {
@@ -496,19 +489,19 @@ export default function SprintTabs({
                     </div>
                 )}
                 {activeTab === 'Timeline' && <TimelineTab />}
-                {activeTab === 'Whiteboard' && projectId && currentUser && (
+                {activeTab === 'Whiteboard' && projectId && workspaceId && (
                     <div className="flex flex-1 overflow-hidden">
                         <WhiteboardTab
                             projectId={projectId}
+                            workspaceId={workspaceId}
                             initialData={whiteboardData}
-                            currentUser={currentUser}
                             userRole={userRole ?? null}
                         />
                     </div>
                 )}
-                {activeTab === 'Whiteboard' && !projectId && (
+                {activeTab === 'Whiteboard' && (!projectId || !workspaceId) && (
                     <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
-                        No active project — open a workspace to use the whiteboard.
+                        No active workspace — open a workspace to use the whiteboard.
                     </div>
                 )}
                 {activeTab === 'Settings' && settingsData && (
