@@ -491,7 +491,7 @@ export default function SprintTabs({
                 )}
                 {activeTab === 'Timeline' && <TimelineTab />}
                 {activeTab === 'Whiteboard' && projectId && workspaceId && (
-                    <div className="flex flex-1 overflow-hidden">
+                    <div className="flex flex-1">
                         <WhiteboardTab
                             projectId={projectId}
                             workspaceId={workspaceId}

@@ -185,8 +185,9 @@ function TldrawBoard({ projectId, workspaceId, initialData, userRole }: TldrawBo
     }, [editor, room])
 
     return (
-        // Explicit dimensions are required — tldraw uses absolute positioning internally
-        <div className="relative h-full w-full" style={{ minHeight: 600 }}>
+        // tldraw uses absolute positioning internally and needs a parent with an explicit
+        // pixel height. h-full collapses when the parent chain has no height anchor.
+        <div className="relative w-full" style={{ height: 'calc(100vh - 250px)', minHeight: 600 }}>
             {viewOnly && (
                 <div className="absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-xs font-medium text-slate-600 shadow-md ring-1 ring-slate-200 backdrop-blur-sm">
                     👁 View only · Updates live as your team draws
