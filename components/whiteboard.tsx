@@ -59,8 +59,10 @@ export default function WhiteboardTab({
     const [cursors, setCursors] = useState<Record<string, { name: string; x: number; y: number; color: string }>>({})
     const viewOnly = isReadOnly(userRole)
 
-    // Helper: channel is only sendable when its internal Phoenix state is 'joined'
-    const canSend = () => channelRef.current?.state === 'joined'
+    // canSend() mirrors the exact check inside Supabase's send():
+    // socket.isConnected() && channelAdapter.state === 'joined'
+    // Using ch.state alone misses socket connectivity, causing REST fallback.
+    const canSend = () => (channelRef.current as any)?.channelAdapter?.canPush() === true
 
     // channelRef is populated inside the effect so Strict Mode cleanup fully
     // removes the channel before the second mount creates a fresh instance.
