@@ -226,3 +226,35 @@ export async function addWorkspaceMember(formData: FormData) {
 
     revalidatePath('/workspace', 'layout')
 }
+
+// 8. Update the authenticated user's profile
+export async function updateProfile(formData: FormData) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    const firstName = (formData.get('firstName') as string)?.trim()
+    const middleName = (formData.get('middleName') as string)?.trim() || null
+    const lastName = (formData.get('lastName') as string)?.trim()
+    const username = (formData.get('username') as string)?.trim()
+    const avatarUrl = (formData.get('avatarUrl') as string)?.trim() || null
+
+    if (!firstName) throw new Error('First name is required.')
+    if (!lastName) throw new Error('Last name is required.')
+    if (!username) throw new Error('Username is required.')
+
+    const { error } = await (supabase
+        .from('profiles') as any)
+        .update({
+            first_name: firstName,
+            middle_name: middleName,
+            last_name: lastName,
+            username,
+            avatar_url: avatarUrl,
+        })
+        .eq('id', user.id)
+
+    if (error) throw new Error(error.message)
+
+    revalidatePath('/workspace', 'layout')
+}

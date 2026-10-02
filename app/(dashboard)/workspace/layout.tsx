@@ -14,14 +14,22 @@ export default async function DashboardLayout({
 
     if (!user) redirect('/login')
 
-    // Query the user's active workspace
-    const { data: memberships } = await (supabase
-        .from('workspace_members') as any)
-        .select('workspace_id, workspaces(id, name)')
-        .eq('user_id', user.id)
-        .limit(1)
+    // Query the user's active workspace + profile in parallel
+    const [membershipResult, profileResult] = await Promise.all([
+        (supabase
+            .from('workspace_members') as any)
+            .select('workspace_id, workspaces(id, name)')
+            .eq('user_id', user.id)
+            .limit(1),
+        (supabase
+            .from('profiles') as any)
+            .select('first_name, middle_name, last_name, username, avatar_url')
+            .eq('id', user.id)
+            .maybeSingle(),
+    ])
 
-    const activeWorkspace = memberships?.[0]?.workspaces
+    const activeWorkspace = membershipResult.data?.[0]?.workspaces
+    const profile = profileResult.data
 
     return (
         <div className="flex h-screen w-screen overflow-hidden bg-slate-50">
@@ -29,6 +37,11 @@ export default async function DashboardLayout({
                 userEmail={user.email || ''}
                 workspaceName={activeWorkspace?.name}
                 workspaceId={activeWorkspace?.id}
+                username={profile?.username || null}
+                avatarUrl={profile?.avatar_url || null}
+                firstName={profile?.first_name || null}
+                middleName={profile?.middle_name || null}
+                lastName={profile?.last_name || null}
             />
             <main className="flex-1 overflow-y-auto">
                 {children}
