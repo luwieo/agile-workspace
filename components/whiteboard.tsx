@@ -55,8 +55,12 @@ export default function WhiteboardTab({
     const excalidrawApiRef = useRef<ExcalidrawAPI | null>(null)
     const isSuppressingRef = useRef(false)
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const cursorThrottleRef = useRef<number>(0)
     const [cursors, setCursors] = useState<Record<string, { name: string; x: number; y: number; color: string }>>({})
     const viewOnly = isReadOnly(userRole)
+
+    // Helper: channel is only sendable when its internal Phoenix state is 'joined'
+    const canSend = () => channelRef.current?.state === 'joined'
 
     // channelRef is populated inside the effect so Strict Mode cleanup fully
     // removes the channel before the second mount creates a fresh instance.
@@ -69,15 +73,24 @@ export default function WhiteboardTab({
         // Create a FRESH channel inside the effect so the cleanup can fully
         // remove it — prevents the Strict Mode "join called twice" error.
         const ch = supabase.channel(`whiteboard:${projectId}`, {
-            config: { broadcast: { self: false }, presence: { key: currentUser.id } },
+            config: {
+                broadcast: { self: false, ack: false },
+                presence: { key: currentUser.id },
+            },
         })
         channelRef.current = ch
 
         ch.on('broadcast', { event: 'elements-update' }, ({ payload }) => {
             if (!excalidrawApiRef.current) return
+            // Set the suppress flag BEFORE updateScene() — Excalidraw's onChange
+            // fires synchronously inside updateScene, so the flag must already be
+            // true when handleChange is called. It is reset inside handleChange
+            // itself (not via setTimeout) to guarantee correct ordering.
             isSuppressingRef.current = true
             excalidrawApiRef.current.updateScene({ elements: payload.elements })
-            setTimeout(() => { isSuppressingRef.current = false }, 0)
+            // If onChange was NOT called (e.g. elements unchanged), reset here
+            // as a safety net so future local edits aren't silently swallowed.
+            if (isSuppressingRef.current) isSuppressingRef.current = false
         })
 
         ch.on('broadcast', { event: 'cursor-move' }, ({ payload }) => {
@@ -99,6 +112,7 @@ export default function WhiteboardTab({
             if (status === 'SUBSCRIBED') {
                 ch.track({ userId: currentUser.id, name: currentUser.name })
             }
+            // No need to track ready state manually — canSend() reads ch.state directly
         })
 
         return () => {
@@ -108,9 +122,12 @@ export default function WhiteboardTab({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId])
 
-    // ── Broadcast cursor on pointer move (non-viewers only) ──────────────────
+    // ── Broadcast cursor on pointer move — throttled to 100ms ────────────────
     const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-        if (viewOnly) return
+        if (viewOnly || !canSend()) return
+        const now = Date.now()
+        if (now - cursorThrottleRef.current < 100) return
+        cursorThrottleRef.current = now
         channelRef.current?.send({
             type: 'broadcast',
             event: 'cursor-move',
@@ -120,9 +137,19 @@ export default function WhiteboardTab({
 
     // ── Canvas change → broadcast + debounced save ──────────────────────────
     const handleChange = useCallback((elements: readonly any[]) => {
-        if (isSuppressingRef.current) return
+        // Reset suppress flag synchronously — this is the loop-breaker.
+        // If the change was triggered by our own updateScene() (remote data),
+        // isSuppressingRef is true here. We reset it and return WITHOUT
+        // broadcasting so the remote change is NOT echoed back to peers.
+        if (isSuppressingRef.current) {
+            isSuppressingRef.current = false
+            return
+        }
 
-        // Broadcast to peers
+        // Only broadcast if the WebSocket channel is fully joined
+        if (!canSend()) return
+
+        // Local user drew something — broadcast to peers
         channelRef.current?.send({
             type: 'broadcast',
             event: 'elements-update',
