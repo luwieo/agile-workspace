@@ -33,7 +33,8 @@ function WhiteboardSkeleton() {
 
 type ExcalidrawAPI = {
     updateScene: (scene: { elements: any[]; appState?: any }) => void
-    getSceneElements: () => any[]
+    getSceneElements: () => readonly any[]
+    getAppState: () => any
 }
 
 function userColor(userId: string) {
@@ -82,16 +83,29 @@ export default function WhiteboardTab({
         })
         channelRef.current = ch
 
-        ch.on('broadcast', { event: 'elements-update' }, ({ payload }) => {
+        // ── Element sync: CRDT merge via reconcileElements ────────────────────
+        // Raw updateScene(remoteElements) would blow away concurrent local edits.
+        // reconcileElements(local, remote, appState) resolves conflicts using each
+        // element's `version` field — the higher version wins. This is Excalidraw's
+        // built-in CRDT equivalent (same algorithm used in excalidraw.com live collab).
+        ch.on('broadcast', { event: 'elements-update' }, async ({ payload }) => {
             if (!excalidrawApiRef.current) return
-            // Set the suppress flag BEFORE updateScene() — Excalidraw's onChange
-            // fires synchronously inside updateScene, so the flag must already be
-            // true when handleChange is called. It is reset inside handleChange
-            // itself (not via setTimeout) to guarantee correct ordering.
+
+            const { reconcileElements } = await import('@excalidraw/excalidraw')
+            const localElements = excalidrawApiRef.current.getSceneElements()
+            const appState = excalidrawApiRef.current.getAppState()
+
+            // Merge: for each element id, keep the copy with the higher version.
+            // Preserves concurrent local edits instead of overwriting them.
+            const merged = reconcileElements(
+                localElements as any,
+                payload.elements,
+                appState
+            )
+
             isSuppressingRef.current = true
-            excalidrawApiRef.current.updateScene({ elements: payload.elements })
-            // If onChange was NOT called (e.g. elements unchanged), reset here
-            // as a safety net so future local edits aren't silently swallowed.
+            excalidrawApiRef.current.updateScene({ elements: merged })
+            // Safety net: if onChange wasn't triggered (no actual diff), reset flag now
             if (isSuppressingRef.current) isSuppressingRef.current = false
         })
 
