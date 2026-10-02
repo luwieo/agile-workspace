@@ -69,46 +69,24 @@ function ExcalidrawBoard({ projectId, workspaceId, initialData, userRole }: Boar
         if (event.type !== 'elements-update') return
         if (!excalidrawApiRef.current) return
 
-        const remoteElements: any[] = event.elements || []
-        if (remoteElements.length === 0) return
-
-        const localElements = excalidrawApiRef.current.getSceneElements()
-
-        // Version-aware merge — explicit deletion support.
-        // reconcileElements was replaced because it can fail to apply a deletion
-        // when both peers have the same element version (tie goes to local = reappears).
-        //
-        // Rules:
-        //  1. Start from local state
-        //  2. Remote element wins when: version is higher OR (same version AND isDeleted)
-        //  3. Local-only elements are preserved (user is drawing concurrently)
-        const localMap = new Map<string, any>(localElements.map((el: any) => [el.id, el]))
-
-        let changed = false
-        for (const remote of remoteElements) {
-            const local = localMap.get(remote.id)
-            const remoteWins =
-                !local ||
-                remote.version > local.version ||
-                // Tie-break: deletion always wins so ghost shapes cannot persist
-                (remote.version === local.version && remote.isDeleted && !local.isDeleted)
-
-            if (remoteWins) {
-                localMap.set(remote.id, remote)
-                changed = true
-            }
-        }
-
-        if (!changed) return
-
-        const merged = [...localMap.values()]
-        // Suppress the echo: set flag BEFORE updateScene so handleChange
-        // (which fires synchronously inside updateScene) sees it set.
-        isSuppressingRef.current = true
-        excalidrawApiRef.current.updateScene({ elements: merged })
-        // Safety net: if onChange didn't fire (no visible diff), reset after the
-        // current tick so future local edits aren't silently swallowed.
-        setTimeout(() => { isSuppressingRef.current = false }, 0)
+        // CRDT merge via reconcileElements — resolves conflicts by element version
+        import('@excalidraw/excalidraw').then(({ reconcileElements }) => {
+            if (!excalidrawApiRef.current) return
+            const localElements = excalidrawApiRef.current.getSceneElements()
+            const appState = excalidrawApiRef.current.getAppState()
+            const merged = reconcileElements(
+                localElements as any,
+                event.elements,
+                appState
+            )
+            isSuppressingRef.current = true
+            excalidrawApiRef.current.updateScene({ elements: merged })
+            if (isSuppressingRef.current) isSuppressingRef.current = false
+        }).catch(() => {
+            isSuppressingRef.current = true
+            excalidrawApiRef.current?.updateScene({ elements: event.elements })
+            if (isSuppressingRef.current) isSuppressingRef.current = false
+        })
     })
 
     // ── Canvas change → broadcast + debounced DB save ─────────────────────────
