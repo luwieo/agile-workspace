@@ -1,6 +1,6 @@
-import { signOut } from '@/app/(auth)/actions'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import WorkspaceSidebar from '@/components/workspace-sidebar'
 
 export default async function DashboardLayout({
     children,
@@ -8,39 +8,29 @@ export default async function DashboardLayout({
     children: React.ReactNode
 }) {
     const supabase = await createClient()
-
-    // Double-check auth status at the layout level
     const {
         data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) {
-        redirect('/login')
-    }
+    if (!user) redirect('/login')
+
+    // Query the user's active workspace
+    const { data: memberships } = await (supabase
+        .from('workspace_members') as any)
+        .select('workspace_id, workspaces(id, name)')
+        .eq('user_id', user.id)
+        .limit(1)
+
+    const activeWorkspace = memberships?.[0]?.workspaces
 
     return (
-        <div className="flex min-h-screen flex-col bg-slate-50">
-            {/* Top Navigation Bar */}
-            <header className="sticky top-0 z-50 flex h-14 items-center justify-between border-b border-white/10 bg-navy px-6 shadow-sm">
-                <div className="flex items-center gap-4">
-                    <span className="text-lg font-bold text-white">AgileSpace</span>
-                </div>
-
-                <div className="flex items-center gap-4">
-                    <span className="text-sm text-slate-200">{user.email}</span>
-                    <form action={signOut}>
-                        <button
-                            type="submit"
-                            className="rounded-xl bg-white/15 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-white/25"
-                        >
-                            Sign Out
-                        </button>
-                    </form>
-                </div>
-            </header>
-
-            {/* Main Content Area (renders your page.tsx) */}
-            <main className="flex-1">
+        <div className="flex h-screen w-screen overflow-hidden bg-slate-50">
+            <WorkspaceSidebar
+                userEmail={user.email || ''}
+                workspaceName={activeWorkspace?.name}
+                workspaceId={activeWorkspace?.id}
+            />
+            <main className="flex-1 overflow-y-auto">
                 {children}
             </main>
         </div>
