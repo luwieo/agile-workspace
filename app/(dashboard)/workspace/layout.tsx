@@ -14,11 +14,11 @@ export default async function DashboardLayout({
 
     if (!user) redirect('/login')
 
-    // Query the user's active workspace + profile in parallel
+    // Fetch workspace membership + profile in parallel
     const [membershipResult, profileResult] = await Promise.all([
         (supabase
             .from('workspace_members') as any)
-            .select('workspace_id, workspaces(id, name)')
+            .select('workspace_id, role, workspaces(id, name)')
             .eq('user_id', user.id)
             .limit(1),
         (supabase
@@ -28,7 +28,8 @@ export default async function DashboardLayout({
             .maybeSingle(),
     ])
 
-    const activeWorkspace = membershipResult.data?.[0]?.workspaces
+    const membership = membershipResult.data?.[0]
+    const activeWorkspace = membership?.workspaces
     const profile = profileResult.data
 
     return (

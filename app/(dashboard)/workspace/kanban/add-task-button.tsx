@@ -6,21 +6,106 @@ import { type AvatarMember } from '@/components/member-avatar-group'
 
 const TODAY = new Date().toISOString().split('T')[0]
 
+// Reusable tag chip selector
+export function TagChipSelector({
+    workspaceTags,
+    selected,
+    onChange,
+}: {
+    workspaceTags: string[]
+    selected: string[]
+    onChange: (tags: string[]) => void
+}) {
+    const [custom, setCustom] = useState('')
+
+    function toggle(tag: string) {
+        onChange(selected.includes(tag) ? selected.filter((t) => t !== tag) : [...selected, tag])
+    }
+
+    function addCustom() {
+        const t = custom.trim()
+        if (t && !selected.includes(t)) onChange([...selected, t])
+        setCustom('')
+    }
+
+    return (
+        <div className="space-y-2">
+            {workspaceTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                    {workspaceTags.map((tag) => {
+                        const active = selected.includes(tag)
+                        return (
+                            <button
+                                key={tag}
+                                type="button"
+                                onClick={() => toggle(tag)}
+                                className={`rounded-xl border px-3 py-1 text-xs font-medium transition ${active
+                                    ? 'border-teal-400 bg-teal-50 text-teal-700'
+                                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                                    }`}
+                            >
+                                {active && <span className="mr-1">✓</span>}{tag}
+                            </button>
+                        )
+                    })}
+                </div>
+            )}
+            {/* Custom tag input */}
+            <div className="flex gap-2">
+                <input
+                    value={custom}
+                    onChange={(e) => setCustom(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom() } }}
+                    placeholder={workspaceTags.length > 0 ? 'Or type a custom tag...' : 'Type a tag and press Enter'}
+                    className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                />
+                {custom.trim() && (
+                    <button
+                        type="button"
+                        onClick={addCustom}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    >
+                        Add
+                    </button>
+                )}
+            </div>
+            {/* Selected custom/non-workspace tags */}
+            {selected.filter((t) => !workspaceTags.includes(t)).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                    {selected.filter((t) => !workspaceTags.includes(t)).map((tag) => (
+                        <span
+                            key={tag}
+                            className="flex items-center gap-1 rounded-xl border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-medium text-teal-700"
+                        >
+                            {tag}
+                            <button type="button" onClick={() => toggle(tag)} className="hover:text-red-500">×</button>
+                        </span>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
 export default function AddTaskButton({
     projectId,
     members,
+    workspaceTags = [],
 }: {
     projectId: string
     members: AvatarMember[]
+    workspaceTags?: string[]
 }) {
     const [open, setOpen] = useState(false)
     const [isPending, startTransition] = useTransition()
     const [error, setError] = useState<string | null>(null)
+    const [selectedTags, setSelectedTags] = useState<string[]>([])
     const dialogRef = useRef<HTMLDialogElement>(null)
     const formRef = useRef<HTMLFormElement>(null)
 
     function openModal() {
         setError(null)
+        setSelectedTags([])
         setOpen(true)
         dialogRef.current?.showModal()
     }
@@ -34,11 +119,14 @@ export default function AddTaskButton({
         e.preventDefault()
         setError(null)
         const formData = new FormData(e.currentTarget)
+        // Inject selected tags as comma-separated string for the action
+        formData.set('tags', selectedTags.join(','))
 
         startTransition(async () => {
             try {
                 await createTask(formData)
                 formRef.current?.reset()
+                setSelectedTags([])
                 closeModal()
             } catch (err: any) {
                 setError(err?.message || 'Failed to create task.')
@@ -77,7 +165,7 @@ export default function AddTaskButton({
                     </button>
                 </div>
 
-                <form ref={formRef} onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
+                <form ref={formRef} onSubmit={handleSubmit} className="max-h-[80vh] space-y-4 overflow-y-auto px-6 py-5">
                     <input type="hidden" name="projectId" value={projectId} />
 
                     {/* Task Name */}
@@ -95,9 +183,7 @@ export default function AddTaskButton({
 
                     {/* Assignee */}
                     <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
-                            Assignee
-                        </label>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">Assignee</label>
                         <select
                             name="assigneeId"
                             defaultValue=""
@@ -114,9 +200,7 @@ export default function AddTaskButton({
 
                     {/* Priority */}
                     <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
-                            Priority
-                        </label>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">Priority</label>
                         <select
                             name="priority"
                             defaultValue="medium"
@@ -130,9 +214,7 @@ export default function AddTaskButton({
 
                     {/* Due Date */}
                     <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
-                            Deadline
-                        </label>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">Deadline</label>
                         <input
                             name="dueDate"
                             type="date"
@@ -141,16 +223,18 @@ export default function AddTaskButton({
                         />
                     </div>
 
-                    {/* Tags */}
+                    {/* Tags — chip selector */}
                     <div>
                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
-                            Tags <span className="font-normal normal-case text-slate-400">(comma-separated, optional)</span>
+                            Tags <span className="font-normal normal-case text-slate-400">(optional)</span>
                         </label>
-                        <input
-                            name="tags"
-                            placeholder="e.g. Frontend, Bug, Design"
-                            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                        />
+                        <div className="mt-1.5">
+                            <TagChipSelector
+                                workspaceTags={workspaceTags}
+                                selected={selectedTags}
+                                onChange={setSelectedTags}
+                            />
+                        </div>
                     </div>
 
                     {/* Description */}
@@ -167,9 +251,7 @@ export default function AddTaskButton({
                     </div>
 
                     {error && (
-                        <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-                            {error}
-                        </p>
+                        <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
                     )}
 
                     <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">

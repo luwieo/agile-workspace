@@ -1,10 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { getWorkspaceMembers } from '../actions'
 import KanbanBoard from './kanban-board'
 import MemberAvatarGroup, { type AvatarMember } from '@/components/member-avatar-group'
 import AddTaskButton from './add-task-button'
 import SprintTabs from '@/components/sprint-tabs'
+import { type WorkspaceRole } from '@/lib/rbac'
 
 export default async function KanbanPage({
     searchParams,
@@ -16,53 +16,114 @@ export default async function KanbanPage({
 
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-
     if (!user) redirect('/login')
 
-    // Option A: re-query current user's profile for presence tracking
-    const { data: profile } = await (supabase
-        .from('profiles') as any)
-        .select('first_name, last_name, username, avatar_url')
-        .eq('id', user.id)
-        .maybeSingle()
+    // Current user profile + active project in parallel
+    const [profileResult, projectResult] = await Promise.all([
+        (supabase.from('profiles') as any)
+            .select('first_name, last_name, username, avatar_url')
+            .eq('id', user.id)
+            .maybeSingle(),
+        (() => {
+            let q = (supabase.from('projects') as any).select('id, name, workspace_id')
+            if (workspaceId) q = q.eq('workspace_id', workspaceId)
+            return q.limit(1)
+        })(),
+    ])
+
+    const profile = profileResult.data
+    const activeProject = projectResult.data?.[0]
 
     const currentUserName = profile
         ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.username || user.email || ''
         : user.email || ''
 
-    // Find active project
-    let projectQuery = (supabase.from('projects') as any).select('id, name, workspace_id')
-    if (workspaceId) {
-        projectQuery = projectQuery.eq('workspace_id', workspaceId)
-    }
-    const { data: projects } = await projectQuery.limit(1)
-    const activeProject = projects?.[0]
-
-    // Query tasks
-    const { data: tasks } = activeProject
-        ? await (supabase.from('tasks') as any)
-            .select('*')
-            .eq('project_id', activeProject.id)
-            .order('created_at', { ascending: true })
-        : { data: [] }
-
-    // Fetch workspace members (used as role/avatar fallback in presence)
     const effectiveWorkspaceId = activeProject?.workspace_id || workspaceId
-    const members: AvatarMember[] = effectiveWorkspaceId ? await getWorkspaceMembers(effectiveWorkspaceId) : []
 
-    // Build currentUser presence payload — find role from members list
-    const selfMember = members.find((m) => m.userId === user.id)
+    // Fetch tasks + members + workspace in parallel
+    const [tasksResult, rawMembersResult, workspaceResult] = await Promise.all([
+        activeProject
+            ? (supabase.from('tasks') as any)
+                .select('*')
+                .eq('project_id', activeProject.id)
+                .order('created_at', { ascending: true })
+            : Promise.resolve({ data: [] }),
+        effectiveWorkspaceId
+            ? (supabase.from('workspace_members') as any)
+                .select(`
+                    user_id,
+                    role,
+                    profiles (
+                        id,
+                        first_name,
+                        last_name,
+                        username,
+                        email,
+                        avatar_url
+                    )
+                `)
+                .eq('workspace_id', effectiveWorkspaceId)
+            : Promise.resolve({ data: [] }),
+        effectiveWorkspaceId
+            ? (supabase.from('workspaces') as any)
+                .select('id, name, slug, tags')
+                .eq('id', effectiveWorkspaceId)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
+    ])
+
+    const boardTasks = tasksResult.data || []
+    const workspaceTags: string[] = workspaceResult.data?.tags || []
+
+    // Map raw members to AvatarMember[]
+    const avatarMembers: AvatarMember[] = (rawMembersResult.data || []).map((m: any) => ({
+        userId: m.user_id,
+        role: m.role,
+        name: m.profiles
+            ? `${m.profiles.first_name || ''} ${m.profiles.last_name || ''}`.trim()
+                || m.profiles.username
+                || m.profiles.email
+                || m.user_id
+            : m.user_id,
+        email: m.profiles?.email || '',
+        username: m.profiles?.username || null,
+        avatarUrl: m.profiles?.avatar_url || null,
+    }))
+
+    // Direct ownership check — more reliable than scanning the members array
+    const { data: selfMembership } = effectiveWorkspaceId
+        ? await (supabase.from('workspace_members') as any)
+            .select('role')
+            .eq('workspace_id', effectiveWorkspaceId)
+            .eq('user_id', user.id)
+            .maybeSingle()
+        : { data: null }
+
+    const isOwner = selfMembership?.role === 'owner'
+
     const currentUser: AvatarMember = {
         userId: user.id,
         name: currentUserName,
         username: profile?.username ?? null,
-        role: selfMember?.role ?? 'member',
+        role: selfMembership?.role ?? 'member',
         avatarUrl: profile?.avatar_url ?? null,
         email: user.email,
     }
 
-    const boardTasks = tasks || []
     const backlogHref = `/workspace/backlog${workspaceId ? `?workspaceId=${workspaceId}` : ''}`
+
+    // Settings data — guarded by isOwner only; workspaceResult.data used with fallbacks
+    // so a null response (e.g. tags column not yet migrated) doesn't drop the whole object
+    const settingsData = isOwner ? {
+        workspace: {
+            id: workspaceResult.data?.id ?? effectiveWorkspaceId ?? '',
+            name: workspaceResult.data?.name ?? '',
+            slug: workspaceResult.data?.slug ?? '',
+            tags: workspaceTags,
+        },
+        members: avatarMembers,
+        currentUserId: user.id,
+    } : undefined
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-slate-50">
@@ -77,31 +138,38 @@ export default async function KanbanPage({
                             {boardTasks.length} task{boardTasks.length !== 1 ? 's' : ''}
                         </p>
                     </div>
-
-                    {/* Live presence avatar group — scoped to this workspace */}
                     {effectiveWorkspaceId && (
                         <MemberAvatarGroup
                             currentUser={currentUser}
                             workspaceId={effectiveWorkspaceId}
-                            members={members}
+                            members={avatarMembers}
                         />
                     )}
                 </div>
 
-                {activeProject && (
-                    <AddTaskButton projectId={activeProject.id} members={members} />
+                {activeProject && selfMembership?.role !== 'viewer' && (
+                    <AddTaskButton
+                        projectId={activeProject.id}
+                        members={avatarMembers}
+                        workspaceTags={workspaceTags}
+                    />
                 )}
             </div>
 
-            {/* Sprint tabs */}
+            {/* Sprint tabs: Summary | Board | Backlog | Timeline | Settings (owner only) */}
             <SprintTabs
                 tasks={boardTasks}
+                members={avatarMembers}
                 backlogHref={backlogHref}
+                isOwner={isOwner}
+                settingsData={settingsData}
                 board={
                     <KanbanBoard
                         initialTasks={boardTasks}
                         projectId={activeProject?.id}
-                        members={members}
+                        members={avatarMembers}
+                        workspaceTags={workspaceTags}
+                        userRole={selfMembership?.role as WorkspaceRole | undefined}
                     />
                 }
             />

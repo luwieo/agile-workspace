@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { canEditTasks, canDeleteTasks, canManageSettings } from '@/lib/rbac'
 
 // 1. Create a Workspace with an initial Project and assign Owner
 export async function createWorkspace(formData: FormData) {
@@ -61,6 +62,9 @@ export async function createWorkspace(formData: FormData) {
 // 2. Create a Task inside a Project
 export async function createTask(formData: FormData) {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
     const title = formData.get('title') as string
     const priority = formData.get('priority') as string
     const projectId = formData.get('projectId') as string
@@ -73,6 +77,24 @@ export async function createTask(formData: FormData) {
     const tags = tagsRaw
         ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean)
         : []
+
+    // Resolve workspaceId from projectId to check role
+    const { data: project } = await (supabase.from('projects') as any)
+        .select('workspace_id')
+        .eq('id', projectId)
+        .maybeSingle()
+
+    const { data: membership } = project?.workspace_id
+        ? await (supabase.from('workspace_members') as any)
+            .select('role')
+            .eq('workspace_id', project.workspace_id)
+            .eq('user_id', user.id)
+            .maybeSingle()
+        : { data: null }
+
+    if (!canEditTasks(membership?.role)) {
+        throw new Error('Forbidden: Viewers cannot create tasks.')
+    }
 
     const { error } = await (supabase.from('tasks') as any).insert({
         title,
@@ -105,26 +127,45 @@ export async function updateTaskStatus(taskId: string, status: 'backlog' | 'todo
     revalidatePath('/workspace/kanban')
 }
 
-// 4. Update task details (title, description, priority, assignee)
-// Update task details (title, description, priority, assignee, tags)
+// 4. Update task details
 export async function updateTask(formData: FormData) {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
     const taskId = formData.get('taskId') as string
     const title = formData.get('title') as string
     const description = formData.get('description') as string
     const priority = formData.get('priority') as string
     const assigneeId = (formData.get('assigneeId') as string) || null
     const tagsRaw = (formData.get('tags') as string) || ''
-
-    // Split tags by comma, trim whitespace, and discard empty entries
-    const tags = tagsRaw
-        ? tagsRaw
-            .split(',')
-            .map((t) => t.trim())
-            .filter(Boolean)
-        : []
-
+    const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : []
     const dueDate = (formData.get('dueDate') as string) || null
+
+    // Resolve workspace role from task's project
+    const { data: task } = await (supabase.from('tasks') as any)
+        .select('project_id')
+        .eq('id', taskId)
+        .maybeSingle()
+
+    const { data: project } = task?.project_id
+        ? await (supabase.from('projects') as any)
+            .select('workspace_id')
+            .eq('id', task.project_id)
+            .maybeSingle()
+        : { data: null }
+
+    const { data: membership } = project?.workspace_id
+        ? await (supabase.from('workspace_members') as any)
+            .select('role')
+            .eq('workspace_id', project.workspace_id)
+            .eq('user_id', user.id)
+            .maybeSingle()
+        : { data: null }
+
+    if (!canEditTasks(membership?.role)) {
+        throw new Error('Forbidden: Viewers cannot edit tasks.')
+    }
 
     const { error } = await (supabase.from('tasks') as any)
         .update({
@@ -132,7 +173,7 @@ export async function updateTask(formData: FormData) {
             description: description || null,
             priority,
             assignee_id: assigneeId === 'unassigned' || !assigneeId ? null : assigneeId,
-            tags: tags,
+            tags,
             due_date: dueDate || null,
         })
         .eq('id', taskId)
@@ -143,9 +184,36 @@ export async function updateTask(formData: FormData) {
     revalidatePath('/workspace/backlog')
 }
 
-// 5. Delete task
+// 5. Delete task (owner + developer only)
 export async function deleteTask(taskId: string) {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    // Resolve workspace role from task's project
+    const { data: task } = await (supabase.from('tasks') as any)
+        .select('project_id')
+        .eq('id', taskId)
+        .maybeSingle()
+
+    const { data: project } = task?.project_id
+        ? await (supabase.from('projects') as any)
+            .select('workspace_id')
+            .eq('id', task.project_id)
+            .maybeSingle()
+        : { data: null }
+
+    const { data: membership } = project?.workspace_id
+        ? await (supabase.from('workspace_members') as any)
+            .select('role')
+            .eq('workspace_id', project.workspace_id)
+            .eq('user_id', user.id)
+            .maybeSingle()
+        : { data: null }
+
+    if (!canDeleteTasks(membership?.role)) {
+        throw new Error('Forbidden: Only owners and developers can delete tasks.')
+    }
 
     const { error } = await (supabase.from('tasks') as any)
         .delete()
@@ -193,7 +261,7 @@ export async function getWorkspaceMembers(workspaceId: string) {
     }))
 }
 
-// 7. Add a member to a workspace by email with selected role
+// 7. Add a member to a workspace by email with selected role (owner only)
 export async function addWorkspaceMember(formData: FormData) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -205,6 +273,17 @@ export async function addWorkspaceMember(formData: FormData) {
 
     if (!email) throw new Error('Email is required')
     if (!role) throw new Error('Role is required')
+
+    // Guard: only owner may invite members
+    const { data: callerMembership } = await (supabase.from('workspace_members') as any)
+        .select('role')
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+    if (!canManageSettings(callerMembership?.role)) {
+        throw new Error('Forbidden: Only the workspace owner can invite members.')
+    }
 
     // Find user profile by email
     const { data: targetProfile, error: profileError } = await (supabase
@@ -229,7 +308,6 @@ export async function addWorkspaceMember(formData: FormData) {
         throw new Error('User is already a member of this workspace.')
     }
 
-    // Insert into workspace_members with the picked role
     const { error: insertError } = await (supabase
         .from('workspace_members') as any)
         .insert({
@@ -273,4 +351,108 @@ export async function updateProfile(formData: FormData) {
     if (error) throw new Error(error.message)
 
     revalidatePath('/workspace', 'layout')
+}
+
+// ─── Workspace Settings ────────────────────────────────────────────────────
+
+// 9. Replace workspace tags array (owner only)
+export async function updateWorkspaceTags(formData: FormData) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    const workspaceId = formData.get('workspaceId') as string
+    const tagsRaw = formData.get('tags') as string
+    const tags = JSON.parse(tagsRaw || '[]')
+
+    // Verify caller's role directly from workspace_members
+    const { data: member } = await (supabase
+        .from('workspace_members') as any)
+        .select('role')
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+    if (member?.role !== 'owner') {
+        throw new Error('Forbidden: Only the workspace owner can configure custom tags.')
+    }
+
+    const { error } = await (supabase
+        .from('workspaces') as any)
+        .update({ tags })
+        .eq('id', workspaceId)
+
+    if (error) throw new Error(error.message)
+
+    revalidatePath(`/workspace/kanban?workspaceId=${workspaceId}`)
+}
+
+// 10. Remove a member from a workspace (owner only, cannot remove self)
+export async function removeWorkspaceMember(formData: FormData) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    const workspaceId = formData.get('workspaceId') as string
+    const targetUserId = formData.get('targetUserId') as string
+
+    if (targetUserId === user.id) throw new Error('You cannot remove yourself from a workspace.')
+
+    // Guard: only owner may remove members
+    const { data: membership } = await (supabase
+        .from('workspace_members') as any)
+        .select('role')
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+    if (membership?.role !== 'owner') throw new Error('Only the workspace owner can remove members.')
+
+    const { error } = await (supabase
+        .from('workspace_members') as any)
+        .delete()
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', targetUserId)
+
+    if (error) throw new Error(error.message)
+
+    revalidatePath('/workspace', 'layout')
+    revalidatePath('/workspace/settings')
+}
+
+// 11. Update a member's role (owner only, cannot change own role)
+export async function updateMemberRole(formData: FormData) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    const workspaceId = formData.get('workspaceId') as string
+    const targetUserId = formData.get('targetUserId') as string
+    const role = formData.get('role') as string
+
+    if (targetUserId === user.id) throw new Error('You cannot change your own role.')
+
+    const validRoles = ['owner', 'developer', 'member', 'viewer']
+    if (!validRoles.includes(role)) throw new Error('Invalid role.')
+
+    // Guard: only owner may change roles
+    const { data: membership } = await (supabase
+        .from('workspace_members') as any)
+        .select('role')
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+    if (membership?.role !== 'owner') throw new Error('Only the workspace owner can change member roles.')
+
+    const { error } = await (supabase
+        .from('workspace_members') as any)
+        .update({ role })
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', targetUserId)
+
+    if (error) throw new Error(error.message)
+
+    revalidatePath('/workspace', 'layout')
+    revalidatePath('/workspace/settings')
 }

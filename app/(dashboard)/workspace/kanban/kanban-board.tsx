@@ -3,6 +3,8 @@
 import { createClient } from '@/lib/supabase/client'
 import { useState, useTransition, useEffect } from 'react'
 import { updateTaskStatus, updateTask, deleteTask } from '../actions'
+import { TagChipSelector } from './add-task-button'
+import { canEditTasks, canDeleteTasks, type WorkspaceRole } from '@/lib/rbac'
 
 const TAG_COLORS: Record<string, string> = {
     bug: 'bg-red-50 text-red-700 border-red-200',
@@ -48,16 +50,23 @@ export default function KanbanBoard({
     initialTasks,
     projectId,
     members = [],
+    workspaceTags = [],
+    userRole,
 }: {
     initialTasks: Task[]
     projectId?: string
     members?: Member[]
+    workspaceTags?: string[]
+    userRole?: WorkspaceRole | null
 }) {
+    const canEdit = canEditTasks(userRole)
+    const canDelete = canDeleteTasks(userRole)
     const [tasks, setTasks] = useState<Task[]>(initialTasks)
     const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
     const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
     const [selectedTask, setSelectedTask] = useState<Task | null>(null)
     const [isPending, startTransition] = useTransition()
+    const [selectedEditTags, setSelectedEditTags] = useState<string[]>([])
 
     // Filter state
     const [search, setSearch] = useState('')
@@ -67,6 +76,11 @@ export default function KanbanBoard({
     useEffect(() => {
         setTasks(initialTasks)
     }, [initialTasks])
+
+    // Sync edit tags when a task is selected
+    useEffect(() => {
+        setSelectedEditTags(selectedTask?.tags || [])
+    }, [selectedTask?.id])
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -223,6 +237,8 @@ export default function KanbanBoard({
         const updatedPriority = formData.get('priority') as Task['priority']
         const updatedAssignee = formData.get('assigneeId') as string
         const updatedDueDate = (formData.get('dueDate') as string) || null
+        // Inject chip-selected tags
+        formData.set('tags', selectedEditTags.join(','))
 
         const previousTasks = [...tasks]
         setTasks((prev) =>
@@ -235,6 +251,7 @@ export default function KanbanBoard({
                         priority: updatedPriority,
                         assignee_id: updatedAssignee === 'unassigned' ? null : updatedAssignee,
                         due_date: updatedDueDate,
+                        tags: selectedEditTags,
                     }
                     : t
             )
@@ -347,14 +364,14 @@ export default function KanbanBoard({
                         .filter((t) => !search || t.title.toLowerCase().includes(search.toLowerCase()))
                         .filter((t) => priorityFilter === 'all' || t.priority === priorityFilter)
                         .filter((t) => tagFilter === 'all' || (t.tags || []).includes(tagFilter))
-                    const isTarget = dragOverColumn === column.id
+                    const isTarget = canEdit && dragOverColumn === column.id
 
                     return (
                         <div
                             key={column.id}
-                            onDragOver={(e) => handleDragOver(e, column.id)}
-                            onDragLeave={handleDragLeave}
-                            onDrop={(e) => handleDrop(e, column.id)}
+                            onDragOver={canEdit ? (e) => handleDragOver(e, column.id) : undefined}
+                            onDragLeave={canEdit ? handleDragLeave : undefined}
+                            onDrop={canEdit ? (e) => handleDrop(e, column.id) : undefined}
                             className={`flex h-full w-80 shrink-0 flex-col rounded-2xl p-4 transition-colors duration-200 ${isTarget
                                 ? 'bg-teal-50/70 ring-2 ring-teal-400 ring-dashed'
                                 : 'bg-slate-100/50'
@@ -375,11 +392,12 @@ export default function KanbanBoard({
                                     return (
                                         <div
                                             key={task.id}
-                                            draggable
-                                            onDragStart={(e) => handleDragStart(e, task.id)}
+                                            draggable={canEdit}
+                                            onDragStart={canEdit ? (e) => handleDragStart(e, task.id) : undefined}
                                             onClick={() => setSelectedTask(task)}
-                                            className={`group cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-500 hover:shadow-md ${isDragging ? 'opacity-40 ring-2 ring-teal-400' : 'opacity-100'
-                                                }`}
+                                            className={`group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-500 hover:shadow-md ${
+                                                canEdit ? 'cursor-pointer' : 'cursor-default'
+                                            } ${isDragging ? 'opacity-40 ring-2 ring-teal-400' : 'opacity-100'}`}
                                         >
                                             <div className="mb-2 flex items-start justify-between">
                                                 <span
@@ -480,27 +498,37 @@ export default function KanbanBoard({
                         <form onSubmit={handleSaveTask} className="flex flex-1 flex-col justify-between overflow-y-auto p-6">
                             <input type="hidden" name="taskId" value={selectedTask.id} />
 
+                            {/* Viewer banner */}
+                            {!canEdit && (
+                                <div className="mb-4 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0zM2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                    View only — Viewers cannot edit tasks
+                                </div>
+                            )}
+
                             <div className="space-y-5">
                                 <div>
-                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                                        Title
-                                    </label>
+                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">Title</label>
                                     <input
                                         name="title"
                                         required
+                                        readOnly={!canEdit}
                                         defaultValue={selectedTask.title}
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-800 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                        className={`mt-1.5 w-full rounded-xl border px-3.5 py-2 text-sm font-medium text-slate-800 outline-none transition ${
+                                            canEdit
+                                                ? 'border-slate-200 focus:border-teal-500 focus:ring-1 focus:ring-teal-500'
+                                                : 'border-transparent bg-slate-50 text-slate-500'
+                                        }`}
                                     />
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                                        Assignee
-                                    </label>
+                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">Assignee</label>
                                     <select
                                         name="assigneeId"
+                                        disabled={!canEdit}
                                         defaultValue={selectedTask.assignee_id || 'unassigned'}
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:bg-slate-50 disabled:text-slate-400"
                                     >
                                         <option value="unassigned">Unassigned</option>
                                         {members.map((m) => (
@@ -512,13 +540,12 @@ export default function KanbanBoard({
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                                        Priority
-                                    </label>
+                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">Priority</label>
                                     <select
                                         name="priority"
+                                        disabled={!canEdit}
                                         defaultValue={selectedTask.priority || 'medium'}
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:bg-slate-50 disabled:text-slate-400"
                                     >
                                         <option value="low">Low</option>
                                         <option value="medium">Medium</option>
@@ -527,67 +554,90 @@ export default function KanbanBoard({
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                                        Deadline
-                                    </label>
+                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">Deadline</label>
                                     <input
                                         name="dueDate"
                                         type="date"
+                                        readOnly={!canEdit}
                                         min={new Date().toISOString().split('T')[0]}
                                         defaultValue={selectedTask.due_date || ''}
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                        className={`mt-1.5 w-full rounded-xl border px-3.5 py-2 text-sm text-slate-700 outline-none transition ${
+                                            canEdit
+                                                ? 'border-slate-200 focus:border-teal-500 focus:ring-1 focus:ring-teal-500'
+                                                : 'border-transparent bg-slate-50 text-slate-400'
+                                        }`}
                                     />
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                                        Tags (comma-separated)
-                                    </label>
-                                    <input
-                                        name="tags"
-                                        defaultValue={selectedTask.tags?.join(', ') || ''}
-                                        placeholder="e.g. Frontend, Bug, Design"
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-800 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                                    />
+                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">Tags</label>
+                                    <div className="mt-1.5">
+                                        {canEdit ? (
+                                            <TagChipSelector
+                                                workspaceTags={workspaceTags}
+                                                selected={selectedEditTags}
+                                                onChange={setSelectedEditTags}
+                                            />
+                                        ) : (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {(selectedTask.tags || []).length === 0
+                                                    ? <span className="text-xs text-slate-400">No tags</span>
+                                                    : (selectedTask.tags || []).map((tag) => (
+                                                        <span key={tag} className="rounded-xl border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-600">{tag}</span>
+                                                    ))
+                                                }
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                                        Description
-                                    </label>
+                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">Description</label>
                                     <textarea
                                         name="description"
                                         rows={5}
+                                        readOnly={!canEdit}
                                         defaultValue={selectedTask.description || ''}
-                                        placeholder="Add details, criteria, or context..."
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-800 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                        placeholder={canEdit ? 'Add details, criteria, or context...' : ''}
+                                        className={`mt-1.5 w-full rounded-xl border px-3.5 py-2 text-sm text-slate-800 outline-none transition ${
+                                            canEdit
+                                                ? 'border-slate-200 focus:border-teal-500 focus:ring-1 focus:ring-teal-500'
+                                                : 'border-transparent bg-slate-50 text-slate-400 resize-none'
+                                        }`}
                                     />
                                 </div>
                             </div>
 
                             <div className="mt-8 flex items-center justify-between border-t border-slate-100 pt-4">
-                                <button
-                                    type="button"
-                                    onClick={handleDeleteTask}
-                                    className="rounded-xl px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
-                                >
-                                    Delete Task
-                                </button>
+                                {/* Delete — owner/developer only */}
+                                {canDelete ? (
+                                    <button
+                                        type="button"
+                                        onClick={handleDeleteTask}
+                                        className="rounded-xl px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                                    >
+                                        Delete Task
+                                    </button>
+                                ) : (
+                                    <div />
+                                )}
                                 <div className="flex gap-2">
                                     <button
                                         type="button"
                                         onClick={() => setSelectedTask(null)}
                                         className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
                                     >
-                                        Cancel
+                                        {canEdit ? 'Cancel' : 'Close'}
                                     </button>
-                                    <button
-                                        type="submit"
-                                        disabled={isPending}
-                                        className="rounded-xl bg-[#1e3a5f] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0d9488] disabled:opacity-50"
-                                    >
-                                        Save Changes
-                                    </button>
+                                    {canEdit && (
+                                        <button
+                                            type="submit"
+                                            disabled={isPending}
+                                            className="rounded-xl bg-[#1e3a5f] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0d9488] disabled:opacity-50"
+                                        >
+                                            Save Changes
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </form>

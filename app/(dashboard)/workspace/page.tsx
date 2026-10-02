@@ -9,7 +9,6 @@ export default async function WorkspacePage() {
 
     if (!user) redirect('/login')
 
-    // Fetch all workspaces the user has access to (membership + owner info)
     const { data: memberships } = await (supabase
         .from('workspace_members') as any)
         .select('role, workspaces(id, name, slug, owner_id)')
@@ -23,7 +22,6 @@ export default async function WorkspacePage() {
         }))
         .filter((w: any) => Boolean(w?.id))
 
-    // No workspaces — show create prompt
     if (workspaces.length === 0) {
         return (
             <div className="flex min-h-[70vh] items-center justify-center p-8">
@@ -35,7 +33,6 @@ export default async function WorkspacePage() {
                     </div>
                     <h2 className="mt-4 text-xl font-bold text-slate-800">Create your Workspace</h2>
                     <p className="mt-1 text-sm text-slate-500">Set up a workspace to manage projects and sprint boards.</p>
-
                     <form action={createWorkspace} className="mt-6 flex flex-col gap-4 text-left">
                         <div>
                             <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">Workspace Name</label>
@@ -46,10 +43,7 @@ export default async function WorkspacePage() {
                                 className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                             />
                         </div>
-                        <button
-                            type="submit"
-                            className="w-full rounded-xl bg-[#1e3a5f] py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0d9488]"
-                        >
+                        <button type="submit" className="w-full rounded-xl bg-[#1e3a5f] py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0d9488]">
                             Create Workspace
                         </button>
                     </form>
@@ -61,7 +55,6 @@ export default async function WorkspacePage() {
     return (
         <div className="p-8">
             <div className="mx-auto max-w-5xl space-y-8">
-                {/* Page Header */}
                 <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight text-slate-800">Workspaces</h1>
@@ -70,8 +63,6 @@ export default async function WorkspacePage() {
                             <span className="font-medium text-teal-600">{user.email}</span>
                         </p>
                     </div>
-
-                    {/* Create new workspace form */}
                     <form action={createWorkspace} className="flex items-center gap-2">
                         <input
                             name="name"
@@ -79,16 +70,12 @@ export default async function WorkspacePage() {
                             placeholder="New workspace name..."
                             className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-800 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                         />
-                        <button
-                            type="submit"
-                            className="rounded-xl bg-[#1e3a5f] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0d9488]"
-                        >
+                        <button type="submit" className="rounded-xl bg-[#1e3a5f] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0d9488]">
                             + New
                         </button>
                     </form>
                 </div>
 
-                {/* Workspace list with filter + search (client) */}
                 <WorkspaceList workspaces={workspaces} />
             </div>
         </div>

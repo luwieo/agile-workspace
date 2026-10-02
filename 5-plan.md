@@ -1,5 +1,7 @@
 I want to implement **Workspace Settings (Custom Task Tags & Member Management)** and a **Read-Only Workspace Summary** for our Next.js (App Router) + Supabase application.
 
+Create an implementation plan first. Do not create changes yet.
+
 ---
 
 ### Database Schema Context
