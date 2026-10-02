@@ -99,7 +99,8 @@ function ExcalidrawBoard({ projectId, workspaceId, initialData, userRole }: Boar
         }
 
         // Broadcast to peers via Liveblocks
-        broadcast({ type: 'elements-update', elements })
+        // Spread into a mutable array — Liveblocks Json type doesn't accept readonly[]
+        broadcast({ type: 'elements-update', elements: [...elements] })
 
         if (viewOnly) return
 
@@ -134,7 +135,7 @@ function ExcalidrawBoard({ projectId, workspaceId, initialData, userRole }: Boar
                     appState: { viewModeEnabled: viewOnly },
                 }}
                 viewModeEnabled={viewOnly}
-                onChange={(elements, _appState, _files) => handleChange(elements)}
+                onChange={(elements: readonly any[], _appState: any, _files: any) => handleChange(elements)}
                 excalidrawAPI={(api: any) => { excalidrawApiRef.current = api }}
                 UIOptions={{
                     canvasActions: {
