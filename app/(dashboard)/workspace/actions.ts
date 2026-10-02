@@ -96,6 +96,7 @@ export async function updateTaskStatus(taskId: string, status: 'backlog' | 'todo
 }
 
 // 4. Update task details (title, description, priority, assignee)
+// Update task details (title, description, priority, assignee, tags)
 export async function updateTask(formData: FormData) {
     const supabase = await createClient()
     const taskId = formData.get('taskId') as string
@@ -103,19 +104,30 @@ export async function updateTask(formData: FormData) {
     const description = formData.get('description') as string
     const priority = formData.get('priority') as string
     const assigneeId = (formData.get('assigneeId') as string) || null
+    const tagsRaw = (formData.get('tags') as string) || ''
+
+    // Split tags by comma, trim whitespace, and discard empty entries
+    const tags = tagsRaw
+        ? tagsRaw
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean)
+        : []
 
     const { error } = await (supabase.from('tasks') as any)
         .update({
             title,
             description: description || null,
             priority,
-            assignee_id: assigneeId === 'unassigned' ? null : assigneeId,
+            assignee_id: assigneeId === 'unassigned' || !assigneeId ? null : assigneeId,
+            tags: tags,
         })
         .eq('id', taskId)
 
     if (error) throw new Error(error.message)
 
     revalidatePath('/workspace/kanban')
+    revalidatePath('/workspace/backlog')
 }
 
 // 5. Delete task

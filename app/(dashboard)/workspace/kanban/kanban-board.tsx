@@ -4,6 +4,22 @@ import { createClient } from '@/lib/supabase/client'
 import { useState, useTransition, useEffect } from 'react'
 import { updateTaskStatus, updateTask, deleteTask } from '../actions'
 
+const TAG_COLORS: Record<string, string> = {
+    bug: 'bg-red-50 text-red-700 border-red-200',
+    frontend: 'bg-blue-50 text-blue-700 border-blue-200',
+    backend: 'bg-purple-50 text-purple-700 border-purple-200',
+    design: 'bg-pink-50 text-pink-700 border-pink-200',
+    feature: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+}
+
+function getTagStyle(tag: string) {
+    const normalized = tag.toLowerCase().trim()
+    return (
+        TAG_COLORS[normalized] ||
+        'bg-slate-100 text-slate-700 border-slate-200'
+    )
+}
+
 export type Member = {
     userId: string
     name: string
@@ -128,6 +144,51 @@ export default function KanbanBoard({
         if (!draggedTask || draggedTask.status === targetStatus) {
             setActiveTaskId(null)
             return
+        }
+
+        const handleSaveTask = async (e: React.FormEvent<HTMLFormElement>) => {
+            e.preventDefault()
+            if (!selectedTask) return
+
+            const formData = new FormData(e.currentTarget)
+            const updatedTitle = formData.get('title') as string
+            const updatedDesc = formData.get('description') as string
+            const updatedPriority = formData.get('priority') as Task['priority']
+            const updatedAssignee = formData.get('assigneeId') as string
+            const tagsRaw = (formData.get('tags') as string) || ''
+            const updatedTags = tagsRaw
+                .split(',')
+                .map((t) => t.trim())
+                .filter(Boolean)
+
+            const previousTasks = [...tasks]
+            setTasks((prev) =>
+                prev.map((t) =>
+                    t.id === selectedTask.id
+                        ? {
+                            ...t,
+                            title: updatedTitle,
+                            description: updatedDesc,
+                            priority: updatedPriority,
+                            assignee_id: updatedAssignee === 'unassigned' ? null : updatedAssignee,
+                            tags: updatedTags,
+                        }
+                        : t
+                )
+            )
+
+            const currentTask = selectedTask
+            setSelectedTask(null)
+
+            startTransition(async () => {
+                try {
+                    await updateTask(formData)
+                } catch (err) {
+                    console.error('Failed to update task:', err)
+                    setTasks(previousTasks)
+                    setSelectedTask(currentTask)
+                }
+            })
         }
 
         const previousTasks = [...tasks]
@@ -278,7 +339,7 @@ export default function KanbanBoard({
                                                     {task.tags.map((tag) => (
                                                         <span
                                                             key={tag}
-                                                            className="rounded-md bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700"
+                                                            className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${getTagStyle(tag)}`}
                                                         >
                                                             {tag}
                                                         </span>
@@ -370,6 +431,18 @@ export default function KanbanBoard({
                                         <option value="medium">Medium</option>
                                         <option value="high">High</option>
                                     </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+                                        Tags (comma-separated)
+                                    </label>
+                                    <input
+                                        name="tags"
+                                        defaultValue={selectedTask.tags?.join(', ') || ''}
+                                        placeholder="e.g. Frontend, Bug, Design"
+                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-800 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                                    />
                                 </div>
 
                                 <div>
