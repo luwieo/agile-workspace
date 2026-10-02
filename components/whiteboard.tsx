@@ -1,7 +1,7 @@
 'use client'
 
-// tldraw CSS — must be imported for the canvas to render correctly
-import '@tldraw/tldraw/tldraw.css'
+// tldraw v5 ships as the unscoped 'tldraw' package — use that CSS path
+import 'tldraw/tldraw.css'
 
 import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
@@ -11,7 +11,7 @@ import {
     useRoom,
     ClientSideSuspense,
 } from '@liveblocks/react'
-import { Tldraw } from '@tldraw/tldraw'
+import { Tldraw } from 'tldraw'
 import { isReadOnly, type WorkspaceRole } from '@/lib/rbac'
 import { saveWhiteboard } from '@/app/(dashboard)/workspace/actions'
 
@@ -185,9 +185,8 @@ function TldrawBoard({ projectId, workspaceId, initialData, userRole }: TldrawBo
     }, [editor, room])
 
     return (
-        // tldraw uses absolute positioning internally and needs a parent with an explicit
-        // pixel height. h-full collapses when the parent chain has no height anchor.
-        <div className="relative w-full" style={{ height: 'calc(100vh - 250px)', minHeight: 600 }}>
+        // Brute-force inline height — cannot collapse regardless of parent chain
+        <div style={{ width: '100%', height: '70vh', minHeight: '600px', position: 'relative' }}>
             {viewOnly && (
                 <div className="absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-xs font-medium text-slate-600 shadow-md ring-1 ring-slate-200 backdrop-blur-sm">
                     👁 View only · Updates live as your team draws
