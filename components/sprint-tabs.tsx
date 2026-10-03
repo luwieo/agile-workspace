@@ -19,7 +19,7 @@ const WhiteboardTab = dynamic(() => import('@/components/whiteboard'), { ssr: fa
 
 type Tab = 'Summary' | 'Board' | 'Backlog' | 'Whiteboard' | 'Timeline' | 'Settings'
 
-const BASE_TABS: Tab[] = ['Summary', 'Board', 'Backlog', 'Whiteboard', 'Timeline']
+const BASE_TABS: Tab[] = ['Summary', 'Board', 'Whiteboard', 'Timeline']
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 

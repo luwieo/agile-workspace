@@ -7,6 +7,8 @@ import { login } from '../actions'
 export default function LoginPage() {
     const [error, setError] = useState<string | null>(null)
     const [isPending, startTransition] = useTransition()
+    const [email, setEmail] = useState('')
+    const [password, setPassword] = useState('')
 
     async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault()
@@ -41,6 +43,23 @@ export default function LoginPage() {
                     </div>
                 )}
 
+                <div className="mt-6 flex gap-2">
+                    <button
+                        type="button"
+                        onClick={() => { setEmail('scrum.owner@agile.com'); setPassword('Pass123!') }}
+                        className="flex-1 rounded-xl bg-slate-100 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200"
+                    >
+                        Demo: Owner
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { setEmail('scrum.dev@agile.com'); setPassword('Pass123!') }}
+                        className="flex-1 rounded-xl bg-slate-100 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200"
+                    >
+                        Demo: Developer
+                    </button>
+                </div>
+
                 <form onSubmit={handleSubmit} className="mt-6 space-y-4">
                     <div>
                         <label className="block text-xs font-medium uppercase tracking-wider text-slate-600">
@@ -50,6 +69,8 @@ export default function LoginPage() {
                             type="text"
                             name="emailOrUsername"
                             required
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
                             placeholder="Email or @username"
                             className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-teal-500"
                         />
@@ -63,6 +84,8 @@ export default function LoginPage() {
                             name="password"
                             type="password"
                             required
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
                             placeholder="••••••••"
                             className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 transition focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
                         />
