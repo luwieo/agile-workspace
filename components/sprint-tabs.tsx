@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { type Task } from '@/app/(dashboard)/workspace/kanban/kanban-board'
 import { type AvatarMember } from '@/components/member-avatar-group'
@@ -11,8 +11,9 @@ import {
     addWorkspaceMember,
 } from '@/app/(dashboard)/workspace/actions'
 import { type WorkspaceRole } from '@/lib/rbac'
+import { useWorkspaceRealtime } from '@/lib/hooks/use-workspace-realtime'
 
-// tldraw + Liveblocks use browser-only APIs — must be dynamic
+// Excalidraw + Liveblocks use browser-only APIs — must be dynamic
 const WhiteboardTab = dynamic(() => import('@/components/whiteboard'), { ssr: false })
 
 type Tab = 'Summary' | 'Board' | 'Backlog' | 'Whiteboard' | 'Timeline' | 'Settings'
@@ -384,6 +385,9 @@ function SettingsTab({ workspace, members: initialMembers, currentUserId }: {
 }) {
     const [members, setMembers] = useState<AvatarMember[]>(initialMembers)
 
+    // Re-sync local state when the server re-renders with fresh data (realtime refresh)
+    useEffect(() => { setMembers(initialMembers) }, [initialMembers])
+
     return (
         <div className="p-8">
             <div className="mx-auto max-w-3xl space-y-10">
@@ -464,6 +468,9 @@ export default function SprintTabs({
 }) {
     const tabs: Tab[] = isOwner ? [...BASE_TABS, 'Settings'] : BASE_TABS
     const [activeTab, setActiveTab] = useState<Tab>('Board')
+
+    // Live-update stats + members across all clients
+    useWorkspaceRealtime(workspaceId, projectId)
 
     return (
         <div className="flex flex-1 flex-col overflow-hidden">
