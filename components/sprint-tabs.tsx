@@ -89,29 +89,29 @@ function SummaryTab({ tasks, members }: { tasks: Task[]; members: AvatarMember[]
                     <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
                         Workspace Members ({members.length})
                     </h2>
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
                             <div className="flex flex-wrap gap-3">
                                 {members.map((m) => (
-                                    <div key={m.userId} className="flex items-center gap-2">
-                                        <MemberAvatar member={m} size="sm" />
-                                        <div>
-                                            <p className="text-xs font-medium text-slate-700">{m.name}</p>
-                                            {m.username && <p className="text-[10px] text-slate-400">@{m.username}</p>}
+                                    <div key={m.userId} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 transition-all duration-300 hover:-translate-y-0.5 hover:border-teal-200 hover:bg-white hover:shadow-sm">
+                                        <MemberAvatar member={m} size="md" />
+                                        <div className="pr-3">
+                                            <p className="text-sm font-bold text-slate-700 leading-tight">{m.name}</p>
+                                            <p className="text-[11px] font-medium text-slate-400 mt-0.5">{m.username ? `@${m.username}` : m.email}</p>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         </div>
                         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-                            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">By Role</p>
-                            <div className="space-y-2">
+                            <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">By Role</p>
+                            <div className="space-y-3">
                                 {Object.entries(roleCounts).map(([role, count]) => (
-                                    <div key={role} className="flex items-center justify-between">
-                                        <span className={`rounded-md px-2.5 py-0.5 text-[11px] font-semibold capitalize ${ROLE_COLORS[role] || ROLE_COLORS.member}`}>
+                                    <div key={role} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 p-3 transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm">
+                                        <span className={`rounded-md px-3 py-1 text-[11px] font-bold capitalize tracking-wide ${ROLE_COLORS[role] || ROLE_COLORS.member}`}>
                                             {role}
                                         </span>
-                                        <span className="text-sm font-bold text-slate-700">{count}</span>
+                                        <span className="text-base font-black text-slate-700">{count}</span>
                                     </div>
                                 ))}
                             </div>

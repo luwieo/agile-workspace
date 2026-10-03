@@ -372,9 +372,9 @@ export default function KanbanBoard({
                             onDragOver={canEdit ? (e) => handleDragOver(e, column.id) : undefined}
                             onDragLeave={canEdit ? handleDragLeave : undefined}
                             onDrop={canEdit ? (e) => handleDrop(e, column.id) : undefined}
-                            className={`flex h-full w-80 shrink-0 flex-col rounded-2xl p-4 transition-colors duration-200 ${isTarget
+                            className={`flex h-full w-80 shrink-0 flex-col rounded-2xl p-4 transition-colors duration-300 ${isTarget
                                 ? 'bg-teal-50/70 ring-2 ring-teal-400 ring-dashed'
-                                : 'bg-slate-100/50'
+                                : 'bg-slate-100/40'
                                 }`}
                         >
                             <div className="mb-4 flex items-center justify-between px-2">
@@ -395,7 +395,7 @@ export default function KanbanBoard({
                                             draggable={canEdit}
                                             onDragStart={canEdit ? (e) => handleDragStart(e, task.id) : undefined}
                                             onClick={() => setSelectedTask(task)}
-                                            className={`group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-500 hover:shadow-md ${
+                                            className={`group animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white/80 p-4 shadow-sm backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-teal-500 hover:shadow-md hover:bg-white active:scale-[0.98] ${
                                                 canEdit ? 'cursor-pointer' : 'cursor-default'
                                             } ${isDragging ? 'opacity-40 ring-2 ring-teal-400' : 'opacity-100'}`}
                                         >
@@ -627,7 +627,7 @@ export default function KanbanBoard({
                                     <button
                                         type="button"
                                         onClick={handleDeleteTask}
-                                        className="rounded-xl px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                                        className="rounded-xl px-3 py-2 text-xs font-semibold text-red-600 transition-all duration-200 hover:bg-red-50 hover:-translate-y-0.5 active:scale-95"
                                     >
                                         Delete Task
                                     </button>
@@ -638,7 +638,7 @@ export default function KanbanBoard({
                                     <button
                                         type="button"
                                         onClick={() => setSelectedTask(null)}
-                                        className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                                        className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 transition-all duration-200 hover:bg-slate-50 hover:-translate-y-0.5 active:scale-95"
                                     >
                                         {canEdit ? 'Cancel' : 'Close'}
                                     </button>
@@ -646,7 +646,7 @@ export default function KanbanBoard({
                                         <button
                                             type="submit"
                                             disabled={isPending}
-                                            className="rounded-xl bg-[#1e3a5f] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0d9488] disabled:opacity-50"
+                                            className="rounded-xl bg-[#1e3a5f] px-4 py-2 text-xs font-semibold text-white shadow-md shadow-[#1e3a5f]/30 transition-all duration-200 hover:bg-[#0d9488] hover:-translate-y-0.5 active:scale-95 hover:shadow-[#0d9488]/40 disabled:opacity-50"
                                         >
                                             Save Changes
                                         </button>

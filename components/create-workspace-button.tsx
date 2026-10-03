@@ -39,8 +39,8 @@ export default function CreateWorkspaceButton({ variant = 'default' }: { variant
     }
 
     const buttonClass = variant === 'empty-state'
-        ? "rounded-xl bg-[#1e3a5f] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0d9488]"
-        : "rounded-xl bg-[#1e3a5f] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0d9488]"
+        ? "rounded-xl bg-[#1e3a5f] px-6 py-3 text-sm font-semibold text-white shadow-md shadow-[#1e3a5f]/30 transition-all duration-200 hover:bg-[#0d9488] hover:-translate-y-0.5 active:scale-95 hover:shadow-[#0d9488]/40"
+        : "rounded-xl bg-[#1e3a5f] px-4 py-2 text-sm font-semibold text-white shadow-md shadow-[#1e3a5f]/30 transition-all duration-200 hover:bg-[#0d9488] hover:-translate-y-0.5 active:scale-95 hover:shadow-[#0d9488]/40"
 
     return (
         <>
@@ -96,14 +96,14 @@ export default function CreateWorkspaceButton({ variant = 'default' }: { variant
                         <button
                             type="button"
                             onClick={closeModal}
-                            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-50 hover:-translate-y-0.5 active:scale-95"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
                             disabled={isPending}
-                            className="rounded-xl bg-[#1e3a5f] px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0d9488] disabled:opacity-50"
+                            className="rounded-xl bg-[#1e3a5f] px-5 py-2 text-sm font-semibold text-white shadow-md shadow-[#1e3a5f]/30 transition-all duration-200 hover:bg-[#0d9488] hover:-translate-y-0.5 active:scale-95 hover:shadow-[#0d9488]/40 disabled:opacity-50"
                         >
                             {isPending ? 'Creating...' : 'Create Workspace'}
                         </button>

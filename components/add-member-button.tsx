@@ -54,9 +54,9 @@ export default function AddMemberButton({
             <button
                 type="button"
                 onClick={openModal}
-                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:border-teal-500 hover:bg-teal-50 hover:text-teal-700 hover:-translate-y-0.5 active:scale-95 group"
             >
-                <svg className="h-3.5 w-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg className="h-3.5 w-3.5 text-teal-600 transition-transform group-hover:scale-110" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                 </svg>
                 <span>Add Member</span>
@@ -131,14 +131,14 @@ export default function AddMemberButton({
                         <button
                             type="button"
                             onClick={closeModal}
-                            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-50 hover:-translate-y-0.5 active:scale-95"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
                             disabled={isPending || success}
-                            className="rounded-xl bg-[#1e3a5f] px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0d9488] disabled:opacity-50"
+                            className="rounded-xl bg-[#1e3a5f] px-5 py-2 text-sm font-semibold text-white shadow-md shadow-[#1e3a5f]/30 transition-all duration-200 hover:bg-[#0d9488] hover:-translate-y-0.5 active:scale-95 hover:shadow-[#0d9488]/40 disabled:opacity-50"
                         >
                             {isPending ? 'Adding...' : 'Add Member'}
                         </button>
