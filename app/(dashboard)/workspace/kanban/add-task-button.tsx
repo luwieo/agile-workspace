@@ -181,23 +181,6 @@ export default function AddTaskButton({
                         />
                     </div>
 
-                    {/* Assignee */}
-                    <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">Assignee</label>
-                        <select
-                            name="assigneeId"
-                            defaultValue=""
-                            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                        >
-                            <option value="">Unassigned</option>
-                            {members.map((m) => (
-                                <option key={m.userId} value={m.userId}>
-                                    {m.username ? `@${m.username}` : m.name} {m.role ? `(${m.role})` : ''}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
                     {/* Priority */}
                     <div>
                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">Priority</label>

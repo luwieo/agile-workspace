@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { canEditTasks, canDeleteTasks, canManageSettings } from '@/lib/rbac'
 
 // 1. Create a Workspace with an initial Project and assign Owner
@@ -69,7 +70,7 @@ export async function createTask(formData: FormData) {
     const priority = formData.get('priority') as string
     const projectId = formData.get('projectId') as string
     const status = (formData.get('status') as string) || 'todo'
-    const assigneeId = (formData.get('assigneeId') as string) || null
+
     const tagsRaw = (formData.get('tags') as string) || ''
     const description = (formData.get('description') as string) || null
     const dueDate = (formData.get('dueDate') as string) || null
@@ -101,7 +102,7 @@ export async function createTask(formData: FormData) {
         priority,
         project_id: projectId,
         status,
-        assignee_id: assigneeId || null,
+        assignee_id: user.id, // creator is the permanent assignee
         tags: tags.length > 0 ? tags : null,
         description: description || null,
         due_date: dueDate || null,
@@ -137,7 +138,7 @@ export async function updateTask(formData: FormData) {
     const title = formData.get('title') as string
     const description = formData.get('description') as string
     const priority = formData.get('priority') as string
-    const assigneeId = (formData.get('assigneeId') as string) || null
+
     const tagsRaw = (formData.get('tags') as string) || ''
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : []
     const dueDate = (formData.get('dueDate') as string) || null
@@ -172,7 +173,6 @@ export async function updateTask(formData: FormData) {
             title,
             description: description || null,
             priority,
-            assignee_id: assigneeId === 'unassigned' || !assigneeId ? null : assigneeId,
             tags,
             due_date: dueDate || null,
         })
@@ -299,7 +299,7 @@ export async function addWorkspaceMember(formData: FormData) {
     // Check if user is already a member
     const { data: existing } = await (supabase
         .from('workspace_members') as any)
-        .select('id')
+        .select('user_id')
         .eq('workspace_id', workspaceId)
         .eq('user_id', targetProfile.id)
         .maybeSingle()
@@ -491,4 +491,32 @@ export async function updateMemberRole(formData: FormData) {
 
     revalidatePath('/workspace', 'layout')
     revalidatePath('/workspace/settings')
+}
+
+// 13. Delete Workspace (owner only)
+export async function deleteWorkspace(workspaceId: string) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    // Guard: only owner may delete workspace
+    const { data: membership } = await (supabase
+        .from('workspace_members') as any)
+        .select('role')
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+    if (membership?.role !== 'owner') {
+        throw new Error('Forbidden: Only the workspace owner can delete the workspace.')
+    }
+
+    const { error } = await (supabase.from('workspaces') as any)
+        .delete()
+        .eq('id', workspaceId)
+
+    if (error) throw new Error(error.message)
+
+    revalidatePath('/workspace', 'layout')
+    redirect('/workspace')
 }

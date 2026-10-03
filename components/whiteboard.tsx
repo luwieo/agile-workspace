@@ -10,6 +10,8 @@ import {
     RoomProvider,
     useEventListener,
     useBroadcastEvent,
+    useMyPresence,
+    useOthers,
     ClientSideSuspense,
 } from '@liveblocks/react'
 import { isReadOnly, type WorkspaceRole } from '@/lib/rbac'
@@ -18,8 +20,9 @@ import { saveWhiteboard } from '@/app/(dashboard)/workspace/actions'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ExcalidrawAPI = {
-    updateScene: (scene: { elements: any[]; appState?: any }) => void
+    updateScene: (scene: { elements?: any[]; appState?: any; collaborators?: Map<string, any>; captureUpdate?: number }) => void
     getSceneElements: () => readonly any[]
+    getSceneElementsIncludingDeleted: () => readonly any[]
     getAppState: () => any
 }
 
@@ -45,14 +48,16 @@ function WhiteboardSkeleton() {
     )
 }
 
-// ─── Inner board: Excalidraw + Liveblocks Broadcast sync ──────────────────────
-// MIT-licensed canvas (Excalidraw) + Liveblocks for reliable real-time sync.
-// useRoom() is valid here because this renders inside <RoomProvider>.
+// ─── Inner board: Excalidraw + Liveblocks Broadcast sync + Live Cursors ───────
 
 function ExcalidrawBoard({ projectId, workspaceId, initialData, userRole }: BoardProps) {
     const broadcast = useBroadcastEvent()
+    const [, updateMyPresence] = useMyPresence()
+    const others = useOthers()
+
     const excalidrawApiRef = useRef<ExcalidrawAPI | null>(null)
-    const isSuppressingRef = useRef(false)
+    const isRemoteUpdateRef = useRef(false)
+    const lastBroadcastVersionRef = useRef<number>(0)
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const viewOnly = isReadOnly(userRole)
 
@@ -63,44 +68,91 @@ function ExcalidrawBoard({ projectId, workspaceId, initialData, userRole }: Boar
             ? (initialData as any).elements
             : []
 
-    // ── Liveblocks broadcast sync ────────────────────────────────────────────
-    // useEventListener fires when any peer broadcasts an event to this room.
+    // ── Live Cursors: broadcast pointer position to Liveblocks presence ───────
+    const handlePointerUpdate = useCallback((payload: { pointer: { x: number; y: number; tool: 'pointer' | 'laser' }; button: 'down' | 'up' }) => {
+        updateMyPresence({
+            cursor: { x: payload.pointer.x, y: payload.pointer.y },
+            button: payload.button,
+        })
+    }, [updateMyPresence])
+
+    const handlePointerLeave = useCallback(() => {
+        updateMyPresence({ cursor: null, button: 'up' })
+    }, [updateMyPresence])
+
+    // ── Sync peers' presence (live cursors + nametags) into Excalidraw ────────
+    useEffect(() => {
+        if (!excalidrawApiRef.current) return
+        const collaborators = new Map<string, any>()
+
+        for (const other of others) {
+            const presence = other.presence as any
+            if (presence?.cursor) {
+                const info = other.info as any
+                collaborators.set(String(other.connectionId), {
+                    pointer: presence.cursor,
+                    button: presence.button || 'up',
+                    username: info?.name || 'Anonymous',
+                    avatarUrl: info?.avatar || undefined,
+                    color: {
+                        background: info?.color || '#0d9488',
+                        stroke: info?.color || '#0d9488',
+                    },
+                })
+            }
+        }
+
+        excalidrawApiRef.current.updateScene({ collaborators })
+    }, [others])
+
+    // ── Liveblocks broadcast sync & CRDT reconciliation ───────────────────────
     useEventListener(({ event }: { event: any }) => {
         if (event.type !== 'elements-update') return
         if (!excalidrawApiRef.current) return
 
-        // CRDT merge via reconcileElements — resolves conflicts by element version
-        import('@excalidraw/excalidraw').then(({ reconcileElements }) => {
+        // CRDT merge via reconcileElements — resolves conflicts and handles deletions
+        import('@excalidraw/excalidraw').then(({ reconcileElements, getSceneVersion }) => {
             if (!excalidrawApiRef.current) return
-            const localElements = excalidrawApiRef.current.getSceneElements()
+            // CRITICAL: Must include deleted elements so tombstones are preserved
+            const localElements = excalidrawApiRef.current.getSceneElementsIncludingDeleted()
             const appState = excalidrawApiRef.current.getAppState()
             const merged = reconcileElements(
                 localElements as any,
                 event.elements,
                 appState
             )
-            isSuppressingRef.current = true
-            excalidrawApiRef.current.updateScene({ elements: merged })
-            if (isSuppressingRef.current) isSuppressingRef.current = false
+
+            lastBroadcastVersionRef.current = getSceneVersion(merged)
+            isRemoteUpdateRef.current = true
+
+            // captureUpdate: 2 (CaptureUpdateAction.NEVER) so remote updates don't break undo/redo
+            excalidrawApiRef.current.updateScene({ elements: merged, captureUpdate: 2 })
         }).catch(() => {
-            isSuppressingRef.current = true
-            excalidrawApiRef.current?.updateScene({ elements: event.elements })
-            if (isSuppressingRef.current) isSuppressingRef.current = false
+            if (!excalidrawApiRef.current) return
+            isRemoteUpdateRef.current = true
+            excalidrawApiRef.current.updateScene({ elements: event.elements, captureUpdate: 2 })
         })
     })
 
     // ── Canvas change → broadcast + debounced DB save ─────────────────────────
     const handleChange = useCallback((elements: readonly any[]) => {
-        // Suppress flag: this change was triggered by our own updateScene() (remote data).
-        // Reset synchronously and return so we don't echo it back to peers.
-        if (isSuppressingRef.current) {
-            isSuppressingRef.current = false
+        // Suppress echo: this change was triggered by a remote updateScene()
+        if (isRemoteUpdateRef.current) {
+            isRemoteUpdateRef.current = false
             return
         }
 
-        // Broadcast to peers via Liveblocks
-        // Spread into a mutable array — Liveblocks Json type doesn't accept readonly[]
-        broadcast({ type: 'elements-update', elements: [...elements] })
+        import('@excalidraw/excalidraw').then(({ getSceneVersion }) => {
+            const currentVersion = getSceneVersion(elements)
+            // If scene elements version hasn't changed (e.g. only selection changed), skip broadcast
+            if (currentVersion === lastBroadcastVersionRef.current) return
+            lastBroadcastVersionRef.current = currentVersion
+
+            // Broadcast to peers via Liveblocks
+            broadcast({ type: 'elements-update', elements: [...elements] })
+        }).catch(() => {
+            broadcast({ type: 'elements-update', elements: [...elements] })
+        })
 
         if (viewOnly) return
 
@@ -123,7 +175,10 @@ function ExcalidrawBoard({ projectId, workspaceId, initialData, userRole }: Boar
     if (!ExcalidrawComponent) return <WhiteboardSkeleton />
 
     return (
-        <div style={{ width: '100%', height: '70vh', minHeight: '600px', position: 'relative' }}>
+        <div
+            onPointerLeave={handlePointerLeave}
+            style={{ width: '100%', height: '70vh', minHeight: '600px', position: 'relative' }}
+        >
             {viewOnly && (
                 <div className="absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-xs font-medium text-slate-600 shadow-md ring-1 ring-slate-200 backdrop-blur-sm">
                     👁 View only · Updates live as your team draws
@@ -136,6 +191,7 @@ function ExcalidrawBoard({ projectId, workspaceId, initialData, userRole }: Boar
                 }}
                 viewModeEnabled={viewOnly}
                 onChange={(elements: readonly any[], _appState: any, _files: any) => handleChange(elements)}
+                onPointerUpdate={handlePointerUpdate}
                 excalidrawAPI={(api: any) => { excalidrawApiRef.current = api }}
                 UIOptions={{
                     canvasActions: {
@@ -186,12 +242,8 @@ export default function WhiteboardTab({
             <LiveblocksProvider authEndpoint="/api/liveblocks-auth">
                 <RoomProvider
                     id={roomId}
-                    initialPresence={{ cursor: null }}
+                    initialPresence={{ cursor: null, button: 'up' }}
                 >
-                    {/*
-                      ClientSideSuspense shows the skeleton while Liveblocks authenticates.
-                      Without it the canvas is blank during auth.
-                    */}
                     <ClientSideSuspense fallback={<WhiteboardSkeleton />}>
                         <ExcalidrawBoardDynamic
                             projectId={projectId}

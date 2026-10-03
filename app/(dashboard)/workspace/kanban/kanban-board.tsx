@@ -26,6 +26,8 @@ export type Member = {
     userId: string
     name: string
     role?: string
+    username?: string | null
+    avatarUrl?: string | null
 }
 
 export type Task = {
@@ -174,7 +176,6 @@ export default function KanbanBoard({
             const updatedTitle = formData.get('title') as string
             const updatedDesc = formData.get('description') as string
             const updatedPriority = formData.get('priority') as Task['priority']
-            const updatedAssignee = formData.get('assigneeId') as string
             const tagsRaw = (formData.get('tags') as string) || ''
             const updatedTags = tagsRaw
                 .split(',')
@@ -190,7 +191,6 @@ export default function KanbanBoard({
                             title: updatedTitle,
                             description: updatedDesc,
                             priority: updatedPriority,
-                            assignee_id: updatedAssignee === 'unassigned' ? null : updatedAssignee,
                             tags: updatedTags,
                         }
                         : t
@@ -235,7 +235,7 @@ export default function KanbanBoard({
         const updatedTitle = formData.get('title') as string
         const updatedDesc = formData.get('description') as string
         const updatedPriority = formData.get('priority') as Task['priority']
-        const updatedAssignee = formData.get('assigneeId') as string
+
         const updatedDueDate = (formData.get('dueDate') as string) || null
         // Inject chip-selected tags
         formData.set('tags', selectedEditTags.join(','))
@@ -249,7 +249,7 @@ export default function KanbanBoard({
                         title: updatedTitle,
                         description: updatedDesc,
                         priority: updatedPriority,
-                        assignee_id: updatedAssignee === 'unassigned' ? null : updatedAssignee,
+
                         due_date: updatedDueDate,
                         tags: selectedEditTags,
                     }
@@ -411,12 +411,19 @@ export default function KanbanBoard({
                                                     {task.priority || 'no priority'}
                                                 </span>
 
-                                                {assignee && (
+                                                {assignee ? (
                                                     <div
                                                         title={`Assigned to ${assignee.name}`}
                                                         className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-100 text-[10px] font-bold text-teal-800 ring-1 ring-white"
                                                     >
                                                         {assignee.name.slice(0, 2).toUpperCase()}
+                                                    </div>
+                                                ) : (
+                                                    <div
+                                                        title="Unassigned"
+                                                        className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-slate-300 text-[10px] text-slate-400"
+                                                    >
+                                                        ?
                                                     </div>
                                                 )}
                                             </div>
@@ -522,21 +529,27 @@ export default function KanbanBoard({
                                     />
                                 </div>
 
+                                {/* Assignee — read-only: creator is the permanent owner */}
                                 <div>
                                     <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">Assignee</label>
-                                    <select
-                                        name="assigneeId"
-                                        disabled={!canEdit}
-                                        defaultValue={selectedTask.assignee_id || 'unassigned'}
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:bg-slate-50 disabled:text-slate-400"
-                                    >
-                                        <option value="unassigned">Unassigned</option>
-                                        {members.map((m) => (
-                                            <option key={m.userId} value={m.userId}>
-                                                {m.name} ({m.role || 'member'})
-                                            </option>
-                                        ))}
-                                    </select>
+                                    {(() => {
+                                        const a = members.find((m) => m.userId === selectedTask.assignee_id)
+                                        return (
+                                            <div className="mt-1.5 flex items-center gap-2 rounded-xl bg-slate-50 px-3.5 py-2 text-sm text-slate-700">
+                                                {a ? (
+                                                    <>
+                                                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-100 text-[10px] font-bold text-teal-800">
+                                                            {a.name.slice(0, 2).toUpperCase()}
+                                                        </span>
+                                                        <span>{a.username ? `@${a.username}` : a.name}</span>
+                                                        <span className="ml-auto text-[10px] uppercase tracking-wider text-slate-400">Creator</span>
+                                                    </>
+                                                ) : (
+                                                    <span className="text-slate-400">Unassigned</span>
+                                                )}
+                                            </div>
+                                        )
+                                    })()}
                                 </div>
 
                                 <div>

@@ -8,10 +8,11 @@ import {
     updateWorkspaceTags,
     removeWorkspaceMember,
     updateMemberRole,
-    addWorkspaceMember,
+    deleteWorkspace,
 } from '@/app/(dashboard)/workspace/actions'
 import { type WorkspaceRole } from '@/lib/rbac'
 import { useWorkspaceRealtime } from '@/lib/hooks/use-workspace-realtime'
+import AddMemberButton from '@/components/add-member-button'
 
 // Excalidraw + Liveblocks use browser-only APIs — must be dynamic
 const WhiteboardTab = dynamic(() => import('@/components/whiteboard'), { ssr: false })
@@ -342,51 +343,28 @@ function MemberRow({ member, workspaceId, currentUserId, onRemoved, onRoleChange
     )
 }
 
-function AddMemberForm({ workspaceId, onAdded }: { workspaceId: string; onAdded: () => void }) {
-    const [isPending, startTransition] = useTransition()
-    const [error, setError] = useState<string | null>(null)
-    const [success, setSuccess] = useState(false)
 
-    function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-        e.preventDefault(); setError(null); setSuccess(false)
-        const formData = new FormData(e.currentTarget)
-        formData.set('workspaceId', workspaceId)
-        const form = e.currentTarget
-        startTransition(async () => {
-            try { await addWorkspaceMember(formData); form.reset(); setSuccess(true); onAdded(); setTimeout(() => setSuccess(false), 2000) }
-            catch (err: any) { setError(err?.message || 'Failed to add member.') }
-        })
-    }
-
-    return (
-        <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
-            <div className="flex-1 min-w-48">
-                <label className="block text-xs font-medium uppercase tracking-wider text-slate-500 mb-1">Email</label>
-                <input name="email" type="email" required placeholder="teammate@email.com"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-800 outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
-            </div>
-            <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-slate-500 mb-1">Role</label>
-                <select name="role" defaultValue="member" className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none focus:border-teal-500">
-                    {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
-                </select>
-            </div>
-            <button type="submit" disabled={isPending} className="rounded-xl bg-[#1e3a5f] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0d9488] disabled:opacity-50">
-                {isPending ? 'Inviting…' : 'Invite'}
-            </button>
-            {error && <p className="w-full text-sm text-red-600">{error}</p>}
-            {success && <p className="w-full text-sm text-teal-700">Member added ✓</p>}
-        </form>
-    )
-}
 
 function SettingsTab({ workspace, members: initialMembers, currentUserId }: {
     workspace: SettingsWorkspace; members: AvatarMember[]; currentUserId: string
 }) {
     const [members, setMembers] = useState<AvatarMember[]>(initialMembers)
+    const [isDeleting, startDeleteTransition] = useTransition()
 
     // Re-sync local state when the server re-renders with fresh data (realtime refresh)
     useEffect(() => { setMembers(initialMembers) }, [initialMembers])
+
+    function handleDeleteWorkspace() {
+        if (confirm('Are you sure to delete the workspace permanently?')) {
+            startDeleteTransition(async () => {
+                try {
+                    await deleteWorkspace(workspace.id)
+                } catch (e: any) {
+                    alert(e.message || 'Failed to delete workspace')
+                }
+            })
+        }
+    }
 
     return (
         <div className="p-8">
@@ -413,9 +391,12 @@ function SettingsTab({ workspace, members: initialMembers, currentUserId }: {
                 </section>
 
                 <section className="space-y-4">
-                    <div>
-                        <h2 className="text-lg font-semibold text-slate-800">Members</h2>
-                        <p className="mt-0.5 text-sm text-slate-400">{members.length} member{members.length !== 1 ? 's' : ''} in this workspace.</p>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h2 className="text-lg font-semibold text-slate-800">Members</h2>
+                            <p className="mt-0.5 text-sm text-slate-400">{members.length} member{members.length !== 1 ? 's' : ''} in this workspace.</p>
+                        </div>
+                        <AddMemberButton workspaceId={workspace.id} />
                     </div>
                     <ul className="space-y-2">
                         {members.map((m) => (
@@ -425,9 +406,26 @@ function SettingsTab({ workspace, members: initialMembers, currentUserId }: {
                             />
                         ))}
                     </ul>
-                    <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm">
-                        <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">Invite New Member</h3>
-                        <AddMemberForm workspaceId={workspace.id} onAdded={() => {}} />
+                </section>
+
+                <section className="mt-8 space-y-4 border-t border-slate-200 pt-8">
+                    <div>
+                        <h2 className="text-lg font-semibold text-red-600">Danger Zone</h2>
+                        <p className="mt-0.5 text-sm text-slate-400">Irreversible and destructive actions.</p>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl border border-red-200 bg-red-50 p-6">
+                        <div>
+                            <h3 className="text-sm font-semibold text-slate-800">Delete Workspace</h3>
+                            <p className="text-sm text-slate-500">Permanently delete this workspace, all its projects, and tasks.</p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleDeleteWorkspace}
+                            disabled={isDeleting}
+                            className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50"
+                        >
+                            {isDeleting ? 'Deleting...' : 'Delete Workspace'}
+                        </button>
                     </div>
                 </section>
             </div>

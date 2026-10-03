@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import KanbanBoard from './kanban-board'
 import MemberAvatarGroup, { type AvatarMember } from '@/components/member-avatar-group'
 import AddTaskButton from './add-task-button'
+
 import SprintTabs from '@/components/sprint-tabs'
 import { type WorkspaceRole } from '@/lib/rbac'
 
@@ -156,11 +157,13 @@ export default async function KanbanPage({
                         </p>
                     </div>
                     {effectiveWorkspaceId && (
-                        <MemberAvatarGroup
-                            currentUser={currentUser}
-                            workspaceId={effectiveWorkspaceId}
-                            members={avatarMembers}
-                        />
+                        <div className="flex items-center gap-2">
+                            <MemberAvatarGroup
+                                currentUser={currentUser}
+                                workspaceId={effectiveWorkspaceId}
+                                members={avatarMembers}
+                            />
+                        </div>
                     )}
                 </div>
 
